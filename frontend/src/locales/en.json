@@ -1,0 +1,8 @@
+{
+  "app.title": "Study Abroad Assistant",
+  "app.subtitle": "Guided RAG answers with bilingual support",
+  "query.placeholder": "Ask a question about visas, admissions, or scholarships...",
+  "query.submit": "Submit Query",
+  "slots.missing": "Missing information",
+  "observability.placeholder": "Metrics dashboard coming soon"
+}

@@ -1,0 +1,8 @@
+{
+  "app.title": "留学咨询助手",
+  "app.subtitle": "双语引导 + 引文溯源",
+  "query.placeholder": "请输入签证、院校或奖学金相关问题…",
+  "query.submit": "提交问题",
+  "slots.missing": "仍需补充的信息",
+  "observability.placeholder": "指标面板即将上线"
+}

@@ -1,0 +1,68 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.typing-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background-color: #94a3b8;
+  display: inline-block;
+  animation: typing-pulse 1s ease-in-out infinite;
+}
+
+@keyframes typing-pulse {
+  0%,
+  60%,
+  100% {
+    opacity: 0.2;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+}
+
+.chat-fade-in {
+  animation: chat-fade 0.25s ease forwards;
+}
+
+@keyframes chat-fade {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+:root {
+  color-scheme: light;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  @apply min-h-screen bg-[#F7F7F8] text-slate-900;
+}
+
+a {
+  @apply text-brand-primary hover:text-brand-secondary transition-colors;
+}
+
+button {
+  @apply inline-flex items-center justify-center rounded-md border border-transparent px-4 py-2 text-sm font-medium shadow-sm transition-colors focus:outline-none focus-visible:ring focus-visible:ring-brand-secondary/60;
+}
+
+\.btn-primary {
+  @apply bg-brand-primary text-white hover:bg-brand-primary/90;
+}
+
+main {
+  @apply flex-1;
+}
+
