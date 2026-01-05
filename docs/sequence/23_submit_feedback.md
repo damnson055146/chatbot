@@ -1,0 +1,14 @@
+# Submit Feedback
+
+```plantuml
+@startuml
+title Submit Feedback
+autonumber
+actor User
+participant System
+
+User -> System : Click feedback
+System -> User : Submit feedback
+System -> User : Show acknowledgment
+@enduml
+```

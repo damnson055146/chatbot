@@ -1,0 +1,201 @@
+@startuml
+hide empty members
+skinparam classAttributeIconSize 0
+left to right direction
+
+class HttpAPIAgency {
+  +query_handler: Callable
+  +ingest_handler: Callable
+  +query(request: QueryRequest): QueryResponse
+  +ingest(request: IngestRequest): IngestResult
+}
+
+class QueryRequest {
+  +question: String
+  +language: String
+  +slots: Map<String, Any>
+  +top_k: Integer
+  +k_cite: Integer
+  +use_rag: Boolean
+  +session_id: String [0..1]
+  +reset_slots: List<String>
+  +temperature: Float [0..1]
+  +top_p: Float [0..1]
+  +max_tokens: Integer [0..1]
+  +stop: List<String>
+  +model: String [0..1]
+  +explain_like_new: Boolean
+  +attachments: List<String>
+}
+
+class QueryResponse {
+  +answer: String
+  +citations: List<Citation>
+  +trace_id: String
+  +session_id: String
+  +slots: Map<String, Any>
+  +missing_slots: List<String>
+  +slot_prompts: Map<String, String>
+  +slot_suggestions: List<String>
+  +slot_errors: Map<String, String>
+  +diagnostics: QueryDiagnostics [0..1]
+  +attachments: List<String>
+}
+
+class QueryDiagnostics {
+  +retrieval_ms: Float [0..1]
+  +rerank_ms: Float [0..1]
+  +generation_ms: Float [0..1]
+  +end_to_end_ms: Float [0..1]
+  +low_confidence: Boolean
+  +citation_coverage: Float [0..1]
+  +review_suggested: Boolean
+  +review_reason: String [0..1]
+}
+
+class Citation {
+  +chunk_id: String
+  +doc_id: String
+  +snippet: String
+  +score: Float
+  +source_name: String [0..1]
+  +url: String [0..1]
+  +domain: String [0..1]
+  +start_char: Integer [0..1]
+  +end_char: Integer [0..1]
+  +last_verified_at: DateTime [0..1]
+}
+
+class IngestRequest {
+  +source_name: String
+  +content: String
+  +doc_id: String [0..1]
+  +language: String
+  +domain: String [0..1]
+  +freshness: String [0..1]
+  +url: String [0..1]
+  +tags: List<String>
+  +max_chars: Integer
+  +overlap: Integer
+}
+
+class IngestResult {
+  +document: Document
+  +chunk_count: Integer
+  +raw_path: Path
+  +chunk_path: Path
+}
+
+class Document {
+  +doc_id: String
+  +source_name: String
+  +language: String
+  +url: String [0..1]
+  +domain: String [0..1]
+  +freshness: String [0..1]
+  +checksum: String [0..1]
+  +version: Integer
+  +updated_at: DateTime
+  +tags: List<String>
+  +extra: Map<String, Any>
+}
+
+class Chunk {
+  +doc_id: String
+  +chunk_id: String
+  +text: String
+  +start_idx: Integer
+  +end_idx: Integer
+  +metadata: Map<String, Any>
+}
+
+class IndexHealth {
+  +document_count: Integer
+  +chunk_count: Integer
+  +last_build_at: DateTime [0..1]
+  +errors: List<String>
+}
+
+class IndexManager {
+  +alpha: Float
+  +default_top_k: Integer
+  +default_k_cite: Integer
+  +index_backend: String
+  +last_build_at: DateTime [0..1]
+  +document_count: Integer
+  +chunk_count: Integer
+  +errors: List<String>
+  +configure(alpha: Float [0..1], top_k: Integer [0..1], k_cite: Integer [0..1]): void
+  +rebuild(): void
+  +query(query: String, top_k: Integer, alpha: Float [0..1]): List<Retrieved>
+  +health(): IndexHealth
+  +summary(): Map<String, Any>
+}
+
+class HybridIndex {
+  -ids: List<String>
+  -texts: List<String>
+  -metas: List<Map<String, Any>>
+  -bm25: BM25Okapi
+  -embedder: DenseEmbedder
+  -embeddings: List<List<Float>>
+  +query(q: String, top_k: Integer, alpha: Float): List<Retrieved>
+}
+
+class FaissIndex {
+  -ids: List<String>
+  -texts: List<String>
+  -metas: List<Map<String, Any>>
+  -embedder: DenseEmbedder
+  -_index: IndexFlatIP
+  +query(q: String, top_k: Integer): List<Retrieved>
+}
+
+abstract class DenseEmbedder {
+  +embed(texts: List<String>): List<List<Float>>
+}
+
+class SiliconFlowEmbedder {
+  +model: String [0..1]
+  +embed(texts: List<String>): List<List<Float>>
+}
+
+class DummyEmbedder {
+  +embed(texts: List<String>): List<List<Float>>
+}
+
+class Retrieved {
+  +chunk_id: String
+  +text: String
+  +score: Float
+  +meta: Map<String, Any>
+}
+
+class SiliconFlowReranker {
+  +model: String [0..1]
+  +rerank(query: String, items: List<Retrieved>, trace_id: String [0..1], language: String [0..1]): List<Retrieved>
+}
+
+HttpAPIAgency ..> QueryRequest
+HttpAPIAgency ..> QueryResponse
+HttpAPIAgency ..> IngestRequest
+HttpAPIAgency ..> IngestResult
+
+IngestResult *-- Document
+Document "1" o-- "*" Chunk : chunks
+
+QueryResponse "1" o-- "*" Citation : citations
+QueryResponse "1" o-- "0..1" QueryDiagnostics : diagnostics
+
+IndexManager --> HybridIndex
+IndexManager --> FaissIndex
+IndexManager --> Retrieved
+IndexManager --> IndexHealth
+HybridIndex --> DenseEmbedder
+FaissIndex --> DenseEmbedder
+HybridIndex --> Retrieved
+FaissIndex --> Retrieved
+DenseEmbedder <|-- SiliconFlowEmbedder
+DenseEmbedder <|-- DummyEmbedder
+SiliconFlowReranker --> Retrieved
+@enduml

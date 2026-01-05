@@ -67,7 +67,6 @@ def ingest_content(
             )
 
         with time_phase(metrics, "ingest_persist"):
-            chunk_path = save_chunks(doc_identifier, chunked)
             raw_path = materialize_document(normalized, source_name=doc_identifier)
 
             cleaned_tags = [t.strip() for t in (tags or []) if t.strip()]
@@ -87,6 +86,7 @@ def ingest_content(
                 extra=extra_meta,
             )
             document = upsert_document(document)
+            chunk_path = save_chunks(doc_identifier, chunked)
 
         job_duration_ms = (time.perf_counter() - start_total) * 1000
 

@@ -1,0 +1,21 @@
+@startuml
+title Admin Update Assistant Profile
+autonumber
+actor Admin
+participant System
+
+Admin -> System : Open admin profile
+System -> Admin : Load assistant profile
+Admin -> System : Choose profile action
+alt Action? Save profile
+  System -> Admin : Update assistant profile
+  System -> Admin : Return updated profile
+else Upload avatar
+  System -> Admin : Upload new avatar
+  System -> Admin : Return updated profile
+else Remove avatar
+  System -> Admin : Remove avatar
+  System -> Admin : Return updated profile
+end
+System -> Admin : Show updated profile
+@enduml

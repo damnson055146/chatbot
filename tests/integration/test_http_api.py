@@ -5,9 +5,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.agents.http_api import app
-from src.utils import index_manager, security, storage
+from src.pipelines import ingest_queue
+from src.utils import index_manager, security, storage, siliconflow
 from src.utils import session as session_utils
 from src.utils.observability import get_metrics
+from src.utils.text_extract import ExtractedText
 
 
 @pytest.fixture
@@ -38,6 +40,9 @@ def clear_env(monkeypatch):
         "API_AUTH_TOKEN",
         "API_RATE_LIMIT",
         "API_RATE_WINDOW",
+        "JWT_SECRET",
+        "AUTH_ADMIN_PASSWORD",
+        "AUTH_ADMIN_READONLY_PASSWORD",
     ]:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(security, "_rate_limiter", None)
@@ -48,6 +53,9 @@ def clear_env(monkeypatch):
         "API_AUTH_TOKEN",
         "API_RATE_LIMIT",
         "API_RATE_WINDOW",
+        "JWT_SECRET",
+        "AUTH_ADMIN_PASSWORD",
+        "AUTH_ADMIN_READONLY_PASSWORD",
     ]:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(security, "_rate_limiter", None)
@@ -125,10 +133,35 @@ def test_http_ingest_and_query_with_auth(temp_storage, monkeypatch):
     session_data = session_resp.json()
     assert session_data["session_id"] == query_data["session_id"]
 
+    slot_update_payload = {"slots": {"target_country": "Canada", "gpa": "3.5"}, "reset_slots": []}
+    slot_update_resp = client.patch(f"/v1/session/{query_data['session_id']}/slots", json=slot_update_payload, headers=headers)
+    assert slot_update_resp.status_code == 200
+    slot_update_data = slot_update_resp.json()
+    assert slot_update_data["slots"]["target_country"] == "Canada"
+
     list_resp = client.get("/v1/session", headers=headers)
     assert list_resp.status_code == 200
     list_data = list_resp.json()
     assert any(item["session_id"] == query_data["session_id"] for item in list_data["sessions"])
+
+    admin_users_resp = client.get("/v1/admin/users", headers=headers)
+    assert admin_users_resp.status_code == 200
+    admin_users = admin_users_resp.json()
+    assert admin_users
+    admin_user_id = admin_users[0]["user_id"]
+
+    admin_sessions_resp = client.get("/v1/admin/conversations", headers=headers)
+    assert admin_sessions_resp.status_code == 200
+    admin_sessions = admin_sessions_resp.json()
+    assert any(item["session_id"] == query_data["session_id"] for item in admin_sessions)
+
+    admin_messages_resp = client.get(
+        f"/v1/admin/conversations/{admin_user_id}/{query_data['session_id']}/messages",
+        headers=headers,
+    )
+    assert admin_messages_resp.status_code == 200
+    admin_messages = admin_messages_resp.json()
+    assert admin_messages["session_id"] == query_data["session_id"]
 
     delete_resp = client.delete(f"/v1/session/{query_data['session_id']}", headers=headers)
     assert delete_resp.status_code == 204
@@ -153,6 +186,10 @@ def test_http_ingest_and_query_with_auth(temp_storage, monkeypatch):
     sources_data = sources_resp.json()
     assert any(item["doc_id"] == "visa_requirements" for item in sources_data)
 
+    verify_resp = client.post("/v1/admin/sources/visa_requirements/verify", headers=headers)
+    assert verify_resp.status_code == 200
+    verified_at = verify_resp.json()["verified_at"]
+
     delete_source_resp = client.delete("/v1/admin/sources/visa_requirements", headers=headers)
     assert delete_source_resp.status_code == 200
     assert delete_source_resp.json()["deleted"] is True
@@ -174,6 +211,28 @@ def test_http_ingest_and_query_with_auth(temp_storage, monkeypatch):
     assert jobs_resp.status_code == 200
     jobs_data = jobs_resp.json()
     assert jobs_data["jobs"]
+
+    # Streaming SSE (FR-GEN-4 / UX2)
+    stream_headers = dict(headers)
+    stream_headers["Accept"] = "text/event-stream"
+    with client.stream("POST", "/v1/query?stream=true", json=query_payload, headers=stream_headers) as stream_resp:
+        assert stream_resp.status_code == 200
+        events = []
+        for line in stream_resp.iter_lines():
+            if line.startswith("event:"):
+                events.append(line.replace("event:", "").strip())
+            if "completed" in events and len(events) >= 2:
+                break
+        assert "citations" in events
+        assert "completed" in events
+
+    # Early-abort stream (Stop generating): server should tolerate disconnect without error
+    with client.stream("POST", "/v1/query?stream=true", json=query_payload, headers=stream_headers) as stream_resp2:
+        assert stream_resp2.status_code == 200
+        it = stream_resp2.iter_lines()
+        for _ in range(3):
+            next(it, "")
+        # Exit context early -> client disconnects
 
     template_payload = {
         "template_id": "eligibility_summary",
@@ -234,6 +293,14 @@ def test_http_ingest_and_query_with_auth(temp_storage, monkeypatch):
     status_block = metrics_data.get("status", {})
     assert "latency" in status_block and "quality" in status_block
 
+    history_resp = client.get("/v1/metrics/history", headers=headers)
+    assert history_resp.status_code == 200
+    history_data = history_resp.json()
+    assert history_data["entries"]
+    latest = history_data["entries"][-1]
+    assert "timestamp" in latest
+    assert "snapshot" in latest
+
     admin_resp = client.get("/v1/admin/config", headers=headers)
     assert admin_resp.status_code == 200
     admin_data = admin_resp.json()
@@ -247,6 +314,18 @@ def test_http_ingest_and_query_with_auth(temp_storage, monkeypatch):
     assert update_resp.json()["alpha"] == 0.7
     updated_config = client.get("/v1/admin/config", headers=headers).json()
     assert updated_config["retrieval"]["alpha"] == 0.7
+
+    eval_payload = {
+        "top_k": 3,
+        "return_details": True,
+        "cases": [{"query": "student visa requirements", "relevant_doc_ids": ["visa_requirements"]}],
+    }
+    eval_resp = client.post("/v1/admin/eval/retrieval", json=eval_payload, headers=headers)
+    assert eval_resp.status_code == 200
+    eval_data = eval_resp.json()
+    assert eval_data["total_cases"] == 1
+    assert eval_data["top_k"] == 3
+    assert eval_data["cases"]
 
     rate_limit_triggered = False
     for _ in range(25):
@@ -267,3 +346,132 @@ def test_http_auth_rejection(temp_storage, monkeypatch):
     }
     resp = client.post("/v1/ingest", json=ingest_payload)
     assert resp.status_code == 401
+
+
+def test_image_upload_ingest_query_with_ocr_stub(temp_storage, monkeypatch):
+    monkeypatch.setenv("API_AUTH_TOKEN", "secret")
+
+    def fake_extract_text(*, content: bytes, mime_type: str, filename: str) -> ExtractedText:
+        assert mime_type.startswith("image/")
+        return ExtractedText(
+            text="OCR result: passport and bank statements are required.",
+            metadata={"ocr_engine": "stub", "ocr_pages": [{"page": 1, "confidence": 0.95}]},
+        )
+
+    monkeypatch.setattr(ingest_queue, "extract_text_from_bytes", fake_extract_text)
+
+    client = TestClient(app)
+    headers = {"X-API-Key": "secret"}
+
+    upload_resp = client.post(
+        "/v1/upload",
+        headers=headers,
+        files={"file": ("sample.png", b"fake-image-bytes", "image/png")},
+    )
+    assert upload_resp.status_code == 200
+    upload_id = upload_resp.json()["upload_id"]
+
+    ingest_resp = client.post("/v1/ingest-upload", json={"upload_id": upload_id}, headers=headers)
+    assert ingest_resp.status_code == 200
+
+    query_resp = client.post(
+        "/v1/query",
+        json={"question": "Which documents are required?", "language": "en"},
+        headers=headers,
+    )
+    assert query_resp.status_code == 200
+    query_data = query_resp.json()
+    assert query_data["citations"]
+    assert "passport" in query_data["citations"][0]["snippet"].lower()
+
+
+def test_audio_upload_ingest_query_with_stt_stub(temp_storage, monkeypatch):
+    monkeypatch.setenv("API_AUTH_TOKEN", "secret")
+
+    def fake_extract_text(*, content: bytes, mime_type: str, filename: str) -> ExtractedText:
+        assert mime_type.startswith("audio/")
+        return ExtractedText(
+            text="Transcript: visa interview checklist and required documents.",
+            metadata={"stt_engine": "stub", "stt_segments": [{"start": 0.0, "end": 1.2, "text": "visa interview checklist"}]},
+        )
+
+    monkeypatch.setattr(ingest_queue, "extract_text_from_bytes", fake_extract_text)
+
+    client = TestClient(app)
+    headers = {"X-API-Key": "secret"}
+
+    upload_resp = client.post(
+        "/v1/upload",
+        headers=headers,
+        files={"file": ("sample.mp3", b"fake-audio-bytes", "audio/mpeg")},
+    )
+    assert upload_resp.status_code == 200
+    upload_id = upload_resp.json()["upload_id"]
+
+    ingest_resp = client.post("/v1/ingest-upload", json={"upload_id": upload_id}, headers=headers)
+    assert ingest_resp.status_code == 200
+
+    query_resp = client.post(
+        "/v1/query",
+        json={"question": "What is mentioned in the audio?", "language": "en"},
+        headers=headers,
+    )
+    assert query_resp.status_code == 200
+    query_data = query_resp.json()
+    assert query_data["citations"]
+    assert "visa" in query_data["citations"][0]["snippet"].lower()
+
+
+def test_http_admin_readonly_blocks_writes(temp_storage, monkeypatch):
+    monkeypatch.setenv("JWT_SECRET", "secret")
+    monkeypatch.setenv("AUTH_ADMIN_READONLY_PASSWORD", "readonly")
+
+    client = TestClient(app)
+    login_resp = client.post("/v1/auth/login", json={"username": "readonly-admin", "password": "readonly"})
+    assert login_resp.status_code == 200
+    login_data = login_resp.json()
+    assert login_data["role"] == "admin_readonly"
+
+    headers = {"Authorization": f"Bearer {login_data['access_token']}"}
+    read_resp = client.get("/v1/admin/config", headers=headers)
+    assert read_resp.status_code == 200
+
+    update_payload = {"alpha": 0.6, "top_k": 8, "k_cite": 2}
+    write_resp = client.post("/v1/admin/retrieval", json=update_payload, headers=headers)
+    assert write_resp.status_code == 403
+
+
+def test_http_reran_rerank_endpoint(temp_storage, monkeypatch):
+    monkeypatch.setenv("API_AUTH_TOKEN", "secret")
+
+    async def fake_rerank_async(query, documents, *, model=None, trace_id=None, language=None):
+        assert query == "visa"
+        assert documents == ["doc-a", "doc-b", "doc-c"]
+        return [(1, 0.9), (0, 0.2), (2, 0.1)]
+
+    monkeypatch.setattr(siliconflow, "rerank_async", fake_rerank_async)
+
+    client = TestClient(app)
+    headers = {"X-API-Key": "secret"}
+    payload = {
+        "query": "visa",
+        "language": "en",
+        "documents": [
+            {"text": "doc-a"},
+            {"text": "doc-b"},
+            {"text": "doc-c"},
+        ],
+    }
+
+    resp = client.post("/v1/reran", json=payload, headers=headers)
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["query"] == "visa"
+    assert data["trace_id"]
+    assert [item["index"] for item in data["results"]] == [1, 0, 2]
+    assert data["results"][0]["document"]["text"] == "doc-b"
+
+    alias_resp = client.post("/reran", json=payload, headers=headers)
+    assert alias_resp.status_code == 200
+    alias_data = alias_resp.json()
+    assert [item["index"] for item in alias_data["results"]] == [1, 0, 2]

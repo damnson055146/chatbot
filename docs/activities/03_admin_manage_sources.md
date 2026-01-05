@@ -1,0 +1,42 @@
+# Admin Manage Sources
+
+```plantuml
+@startuml
+skinparam shadowing false
+skinparam backgroundColor White
+skinparam activityBorderColor Black
+skinparam activityBackgroundColor White
+skinparam activityDiamondBorderColor Black
+skinparam activityDiamondBackgroundColor White
+skinparam activityStartColor Black
+skinparam activityEndColor Black
+skinparam swimlaneBorderColor Black
+skinparam swimlaneBorderThickness 1
+skinparam swimlaneTitleBackgroundColor White
+skinparam swimlaneTitleBorderColor Black
+skinparam swimlaneTitleBorderThickness 1
+skinparam padding 20
+title Admin Manage Sources
+|User|
+start
+:Open admin sources;
+|System|
+:Load source list;
+|User|
+:Select source or create new;
+:Edit source details;
+|System|
+if (Action?) then (Save)
+:Save source;
+:Return saved source;
+elseif (Verify)
+:Verify source;
+:Return verification time;
+elseif (Delete)
+:Delete source;
+:Remove source;
+endif
+:Refresh source list;
+stop
+@enduml
+```

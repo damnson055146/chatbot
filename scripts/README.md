@@ -21,3 +21,13 @@
   - Generates a secure random token via `secrets.token_urlsafe` when `--token` is omitted.
   - Upserts the `API_AUTH_TOKEN` line and prints the value so it can be used by clients or `frontend/.env` (`VITE_API_KEY`).
 - Options: `--bytes` controls the entropy when auto-generating; `--env-path` lets you target a different `.env` file.
+
+## `render_activities.ps1`
+
+- Purpose: regenerate `docs/activities` PNGs from PlantUML sources and add a full border.
+- Usage: `powershell -ExecutionPolicy Bypass -File scripts\render_activities.ps1`
+- Behavior:
+  - Downloads the latest `plantuml.jar` into `scripts\.cache` if missing.
+  - Deletes existing `.png`/`.svg` in `docs/activities` before rendering.
+  - Renders all `.puml` files to PNG and draws a 1px black frame around each output.
+- Requirements: Java 17+ on `PATH`; network access for the initial PlantUML download.

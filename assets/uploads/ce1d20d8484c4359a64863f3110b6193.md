@@ -1,0 +1,201 @@
+# Asia Pacific University (APU) – Full Application Process & Key Considerations (RAG-Ready)
+
+> Purpose: **Structured knowledge source for RAG / QA systems**  
+> Use cases: Study-abroad chatbot, application workflow validation, risk identification  
+> Writing principles: **Process-driven, fact-oriented, low ambiguity, enterprise-grade**
+
+---
+
+## 0. Institutional Context
+
+- Official Name: Asia Pacific University of Technology & Innovation (APU)
+- Location: Kuala Lumpur, Malaysia (Bukit Jalil)
+- Instruction Language: English
+- Academic System: UK-style credit system with **rolling intakes**
+- Typical Applicant Profiles:
+  - Undergraduate applicants (Asia / China / SEA)
+  - Top-up & conversion degree holders
+  - Master’s applicants (IT, Engineering, Business)
+
+---
+
+## 1. End-to-End Application Workflow
+
+```text
+Pre-assessment
+  ↓
+Document Preparation
+  ↓
+Application Submission
+  ↓
+Offer Issuance (Conditional / Unconditional)
+  ↓
+Acceptance Fee Payment
+  ↓
+EMGS / Student Pass Processing
+  ↓
+Medical Check & Visa Endorsement
+  ↓
+Entry to Malaysia
+  ↓
+Registration & Course Enrollment
+```
+
+> Note: APU allows **Conditional Offers** before all documents are finalized, but **Student Pass approval does not**.
+
+---
+
+## 2. Pre-Application Eligibility Assessment
+
+### 2.1 Academic Qualification Mapping
+
+- Undergraduate:
+  - High school / vocational / international curricula (A-Level, IB, etc.)
+- Postgraduate:
+  - Bachelor’s degree (distance learning requires case-by-case review)
+
+**Risk Indicators**:
+- Incomplete academic transcripts
+- Missing credit-hour or grading explanations
+
+---
+
+### 2.2 English Proficiency (Operational Reality)
+
+| Item | Official Requirement | Practical Execution |
+|----|----|----|
+| IELTS | 5.0–6.5 | Language pathway available |
+| No test | Discouraged | Internal placement test possible |
+
+> Operational Insight: **Language programmes do not guarantee visa stability**.
+
+---
+
+## 3. Application Documents Checklist
+
+### 3.1 Mandatory Documents
+
+- Passport (minimum 18 months validity)
+- Academic transcripts (English or bilingual)
+- Graduation certificate / Proof of enrolment
+- Passport-size photo (white background)
+
+### 3.2 Conditional / Supporting Documents
+
+- English test results
+- Personal statement (selected programmes)
+- CV / Resume (working professionals)
+
+### 3.3 High-Risk Document Issues
+
+- Self-translated transcripts without certification
+- Proof of enrolment without expected graduation date
+
+---
+
+## 4. Offer Management Phase
+
+### 4.1 Offer Types
+
+- Conditional Offer
+- Unconditional Offer
+
+**Typical Conditions**:
+- Final academic certificate submission
+- Minimum GPA confirmation
+- English score fulfilment
+
+### 4.2 Offer Acceptance Actions
+
+- Acceptance Letter signature
+- Acceptance Fee payment (generally non-refundable)
+
+> Risk Control: **No payment = no seat reservation**.
+
+---
+
+## 5. EMGS & Student Pass Processing
+
+### 5.1 Visa Workflow
+
+- University submission to EMGS
+- EMGS review (approx. 4–8 weeks)
+- eVAL issuance
+- Visa endorsement / eVISA
+
+### 5.2 Common Rejection Triggers
+
+- Insufficient passport validity
+- Unexplained academic gaps
+- Weak financial credibility
+- Extensive prior visa refusals
+
+> Recommendation: Conduct **pre-application visa risk profiling**.
+
+---
+
+## 6. Medical Examination & Entry
+
+- Pre-arrival medical check (approved clinics only)
+- Post-arrival medical screening (university panel)
+
+**Critical Note**:
+- Communicable diseases (e.g. TB) result in immediate rejection
+
+---
+
+## 7. Registration & Programme Commencement
+
+- Must be completed within 7–14 days after arrival:
+  - Student registration
+  - Fee settlement
+  - System access & ID issuance
+
+### 7.1 Intake Deferment
+
+- Usually allowed for 1–2 intakes
+- Student Pass validity must be reassessed
+
+---
+
+## 8. High-Frequency Exceptions (RAG Value Nodes)
+
+### Q1: Documents complete but offer delayed?
+- Faculty backlog or peak intake congestion
+
+### Q2: English score insufficient?
+- Language pathway + main programme bundling
+- Intake deferment strategy
+
+### Q3: EMGS processing exceeds 8 weeks?
+- Verify **official EMGS status codes**, not verbal updates
+
+---
+
+## 9. Knowledge Base Indexing Strategy
+
+**Recommended Chunking**:
+- Split by lifecycle stage (Application / Offer / Visa / Enrollment)
+- ≤ 800 tokens per chunk
+
+**High-Intent Keywords**:
+- APU application requirements
+- APU conditional offer
+- Malaysia student pass EMGS
+- Student visa rejection Malaysia
+
+---
+
+## 10. Maintenance & Governance
+
+- Review every 6–12 months:
+  - English requirements
+  - Visa timelines
+  - Intake schedules
+
+---
+
+> Deployment-ready for:
+> - Vector databases
+> - LangChain / Dify RAG pipelines
+> - Study-abroad advisory agents

@@ -7,7 +7,8 @@ import pytest
 from src.agents import rag_agent
 from src.schemas.models import Document, QueryRequest
 from src.utils.index import Retrieved
-from src.utils.session import SessionStore
+from src.utils import storage
+from src.utils.conversation_store import ConversationStore
 
 
 class _FakeSpan:
@@ -24,7 +25,7 @@ class _FakeSpan:
 
 
 @pytest.mark.asyncio
-async def test_answer_query_emits_tracing_spans(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_answer_query_emits_tracing_spans(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     span_records: list[_FakeSpan] = []
 
     @contextmanager
@@ -35,8 +36,11 @@ async def test_answer_query_emits_tracing_spans(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(rag_agent, "start_span", fake_start_span)
 
-    session_store = SessionStore(ttl_seconds=3600)
-    monkeypatch.setattr(rag_agent, "get_session_store", lambda: session_store)
+    processed = tmp_path / "processed"
+    monkeypatch.setattr(storage, "DATA_PROCESSED", processed)
+    storage.ensure_dirs()
+    session_store = ConversationStore()
+    monkeypatch.setattr(rag_agent, "get_conversation_store", lambda: session_store)
 
     retrieved_items = [
         Retrieved(
@@ -90,7 +94,7 @@ async def test_answer_query_emits_tracing_spans(monkeypatch: pytest.MonkeyPatch)
         explain_like_new=True,
     )
 
-    response = await rag_agent.answer_query(req)
+    response = await rag_agent.answer_query(req, user_id="test-user")
 
     span_names = [span.name for span in span_records]
     assert "rag.retrieval" in span_names

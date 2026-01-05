@@ -1,0 +1,17 @@
+# Manage User Profile
+
+```plantuml
+@startuml
+title Manage User Profile
+autonumber
+actor User
+participant System
+
+User -> System : Open profile settings
+System -> User : Load user profile
+User -> System : Edit display name or email
+User -> System : Click save
+System -> User : Update user profile
+System -> User : Show updated profile
+@enduml
+```

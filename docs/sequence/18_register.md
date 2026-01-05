@@ -1,0 +1,17 @@
+# Register
+
+```plantuml
+@startuml
+title Register
+autonumber
+actor User
+participant System
+
+User -> System : Open register screen
+User -> System : Enter account details
+User -> System : Submit registration
+System -> User : Create account
+System -> User : Issue access token
+System -> User : Open chat workspace
+@enduml
+```

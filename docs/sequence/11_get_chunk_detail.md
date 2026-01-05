@@ -1,0 +1,14 @@
+# Get Chunk Detail
+
+```plantuml
+@startuml
+title Get Chunk Detail
+autonumber
+actor User
+participant System
+
+User -> System : Open chunk detail
+System -> User : Load chunk using id
+System -> User : Show context panel
+@enduml
+```

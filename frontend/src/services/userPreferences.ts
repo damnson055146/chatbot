@@ -1,4 +1,8 @@
+import { fetchActiveSessions, fetchSessionMessages } from './apiClient'
+
 export type SupportedLanguage = 'auto' | 'en' | 'zh'
+
+const SUPPORTED_LANGUAGES: SupportedLanguage[] = ['auto', 'en', 'zh']
 
 export interface UserPreferences {
   displayName: string
@@ -33,10 +37,11 @@ export interface ConversationExportPayload {
 }
 
 const USER_PREFS_STORAGE_KEY = 'rag.user.preferences'
-const CONVERSATION_PREFIX = 'rag.conversation.'
+const LEGACY_DEFAULT_DISPLAY_NAME = 'Analyst'
+export const USER_PREFS_EVENT = 'rag.user.preferences.updated'
 
 export const DEFAULT_USER_PREFERENCES: UserPreferences = {
-  displayName: 'Analyst',
+  displayName: '',
   email: undefined,
   avatarColor: '#2563eb',
   preferredLanguage: 'auto',
@@ -63,11 +68,16 @@ export const loadUserPreferences = (): UserPreferences => {
       return { ...DEFAULT_USER_PREFERENCES }
     }
     const parsed = JSON.parse(raw) as Partial<UserPreferences>
+    const resolvedLanguage = SUPPORTED_LANGUAGES.includes(parsed.preferredLanguage as SupportedLanguage)
+      ? (parsed.preferredLanguage as SupportedLanguage)
+      : DEFAULT_USER_PREFERENCES.preferredLanguage
+    const rawDisplayName = parsed.displayName?.trim() || ''
+    const normalizedDisplayName = rawDisplayName === LEGACY_DEFAULT_DISPLAY_NAME ? '' : rawDisplayName
     return {
-      displayName: parsed.displayName?.trim() || DEFAULT_USER_PREFERENCES.displayName,
+      displayName: normalizedDisplayName || DEFAULT_USER_PREFERENCES.displayName,
       email: parsed.email,
       avatarColor: parsed.avatarColor || DEFAULT_USER_PREFERENCES.avatarColor,
-      preferredLanguage: (parsed.preferredLanguage as SupportedLanguage) || DEFAULT_USER_PREFERENCES.preferredLanguage,
+      preferredLanguage: resolvedLanguage === 'auto' ? DEFAULT_USER_PREFERENCES.preferredLanguage : resolvedLanguage,
       explainLikeNewDefault: Boolean(parsed.explainLikeNewDefault),
       defaultTopK: clampInteger(parsed.defaultTopK, DEFAULT_USER_PREFERENCES.defaultTopK, 1, 20),
       defaultKCite: clampInteger(parsed.defaultKCite, DEFAULT_USER_PREFERENCES.defaultKCite, 1, 10),
@@ -84,6 +94,7 @@ export const loadUserPreferences = (): UserPreferences => {
 export const saveUserPreferences = (preferences: UserPreferences): UserPreferences => {
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(USER_PREFS_STORAGE_KEY, JSON.stringify(preferences))
+    window.dispatchEvent(new CustomEvent<UserPreferences>(USER_PREFS_EVENT, { detail: preferences }))
   }
   return preferences
 }
@@ -92,32 +103,30 @@ export const resetUserPreferences = (): UserPreferences => {
   const defaults = { ...DEFAULT_USER_PREFERENCES }
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(USER_PREFS_STORAGE_KEY, JSON.stringify(defaults))
+    window.dispatchEvent(new CustomEvent<UserPreferences>(USER_PREFS_EVENT, { detail: defaults }))
   }
   return defaults
 }
 
-export const exportConversationHistory = (): ConversationExportPayload => {
-  const sessions: ConversationExport[] = []
-  if (typeof window !== 'undefined') {
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index)
-      if (!key || !key.startsWith(CONVERSATION_PREFIX)) {
-        continue
-      }
-      const sessionId = key.slice(CONVERSATION_PREFIX.length)
-      try {
-        const raw = window.localStorage.getItem(key)
-        if (!raw) continue
-        const parsed = JSON.parse(raw) as ConversationExportMessage[]
-        if (!Array.isArray(parsed)) continue
-        sessions.push({ sessionId, messages: parsed })
-      } catch {
-        continue
-      }
-    }
-  }
+export const exportConversationHistory = async (): Promise<ConversationExportPayload> => {
+  const sessions = await fetchActiveSessions()
+  const exports = await Promise.all(
+    sessions.map(async (session) => {
+      const messages = await fetchSessionMessages(session.session_id)
+      const mapped: ConversationExportMessage[] = messages.map((message) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.created_at,
+        citations: message.citations,
+        diagnostics: message.diagnostics,
+        lowConfidence: message.low_confidence ?? undefined,
+      }))
+      return { sessionId: session.session_id, messages: mapped }
+    }),
+  )
   return {
     exportedAt: new Date().toISOString(),
-    sessions,
+    sessions: exports,
   }
 }

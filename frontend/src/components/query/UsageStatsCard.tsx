@@ -1,4 +1,5 @@
 import type { ServiceStatusResponsePayload } from '../../services/apiClient'
+import { useTranslation } from 'react-i18next'
 
 interface UsageStatsCardProps {
   data?: ServiceStatusResponsePayload
@@ -13,10 +14,11 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export function UsageStatsCard({ data, isLoading, error }: UsageStatsCardProps) {
+  const { t } = useTranslation()
   if (isLoading) {
     return (
       <section className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500" aria-busy="true">
-        Loading service status…
+        {t('query.usage.loading')}
       </section>
     )
   }
@@ -24,7 +26,7 @@ export function UsageStatsCard({ data, isLoading, error }: UsageStatsCardProps) 
   if (error) {
     return (
       <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-sm text-rose-700">
-        Unable to load `/v1/status`: {error.message}
+        {t('query.usage.error', { endpoint: '/v1/status', message: error.message })}
       </section>
     )
   }
@@ -32,7 +34,7 @@ export function UsageStatsCard({ data, isLoading, error }: UsageStatsCardProps) 
   if (!data || data.categories.length === 0) {
     return (
       <section className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-sm text-slate-500">
-        Service status will appear once the backend reports metrics.
+        {t('query.usage.empty')}
       </section>
     )
   }
@@ -41,8 +43,10 @@ export function UsageStatsCard({ data, isLoading, error }: UsageStatsCardProps) 
     <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
       <header className="flex items-center justify-between">
         <div>
-          <p className="text-sm font-semibold text-slate-900">Usage & health</p>
-          <p className="text-xs text-slate-500">Snapshot generated at {new Date(data.generated_at).toLocaleTimeString()}</p>
+          <p className="text-sm font-semibold text-slate-900">{t('query.usage.title')}</p>
+          <p className="text-xs text-slate-500">
+            {t('query.usage.snapshot_at', { time: new Date(data.generated_at).toLocaleTimeString() })}
+          </p>
         </div>
       </header>
       <div className="mt-4 space-y-4 text-sm text-slate-700">
@@ -55,7 +59,7 @@ export function UsageStatsCard({ data, isLoading, error }: UsageStatsCardProps) 
                   <div>
                     <p className="text-sm font-medium text-slate-900">{formatMetricName(metric.name)}</p>
                     <p className="text-xs text-slate-500">
-                      {metric.value !== undefined ? formatMetricValue(metric) : 'n/a'}
+                      {metric.value !== undefined ? formatMetricValue(t, metric) : t('query.usage.metric.na')}
                     </p>
                   </div>
                   <span className={`rounded-full px-3 py-1 text-xs font-semibold ${STATUS_COLORS[metric.status] ?? 'bg-slate-100 text-slate-600'}`}>
@@ -77,14 +81,20 @@ const formatMetricName = (name: string) =>
     .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
     .join(' ')
 
-const formatMetricValue = (metric: ServiceStatusResponsePayload['categories'][number]['metrics'][number]) => {
+const formatMetricValue = (
+  t: (key: string, options?: Record<string, unknown>) => string,
+  metric: ServiceStatusResponsePayload['categories'][number]['metrics'][number],
+) => {
   if (metric.name.startsWith('latency')) {
-    return `${Math.round(metric.value ?? 0)} ms p95 (target ${Math.round(metric.target ?? 0)} ms)`
+    return t('query.usage.metric.latency_value', {
+      value: Math.round(metric.value ?? 0),
+      target: Math.round(metric.target ?? 0),
+    })
   }
   if (metric.name.includes('rate')) {
     const percentage = Math.round((metric.value ?? 0) * 100)
     const target = Math.round((metric.target ?? 0) * 100)
-    return `${percentage}% (keep ≤ ${target}% )`
+    return t('query.usage.metric.rate_value', { value: percentage, target })
   }
-  return metric.value?.toString() ?? 'n/a'
+  return metric.value?.toString() ?? t('query.usage.metric.na')
 }

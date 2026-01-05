@@ -1,0 +1,13 @@
+# View Citations
+
+```plantuml
+@startuml
+title View Citations
+autonumber
+actor User
+participant System
+
+User -> System : Open citations
+System -> User : Show citations from the response
+@enduml
+```

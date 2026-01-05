@@ -1,0 +1,17 @@
+# Admin Update Assistant Opening
+
+```plantuml
+@startuml
+title Admin Update Assistant Opening
+autonumber
+actor Admin
+participant System
+
+Admin -> System : Open admin opening
+System -> Admin : Load opening messages
+Admin -> System : Edit opening message
+Admin -> System : Click save
+System -> Admin : Update opening message
+System -> Admin : Show updated opening
+@enduml
+```

@@ -18,6 +18,7 @@ def test_request_metrics_snapshot():
     metrics.record_low_confidence()
     metrics.record_citation_coverage(1, 2)
     metrics.record_citation_coverage(2, 2)
+    metrics.record_retrieval_eval(0.5, 0.25, 5)
     metrics.increment_counter("rerank_fallback::disabled")
 
     with time_phase(metrics, "phase_test"):
@@ -46,6 +47,9 @@ def test_request_metrics_snapshot():
     assert diagnostics["rerank_fallbacks"] == 1
     assert diagnostics["low_confidence_answers"] == 1
     assert diagnostics["citation_coverage_avg"] == 0.75
+    assert diagnostics["retrieval_recall_avg"] == 0.5
+    assert diagnostics["retrieval_mrr_avg"] == 0.25
+    assert diagnostics["retrieval_eval_k"] == 5.0
 
     status = snapshot["status"]
     assert "latency" in status and "quality" in status

@@ -2,7 +2,10 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { RootLayout } from '../components/layout/RootLayout'
 import { QueryConsolePage } from '../components/query/QueryConsolePage'
 import { AdminConsolePage } from '../components/admin/AdminConsolePage'
-import { PlaceholderPage } from '../components/pages/PlaceholderPage'
+import { LoginPage } from '../components/auth/LoginPage'
+import { RegisterPage } from '../components/auth/RegisterPage'
+import { RequireAdmin } from '../components/auth/RequireAdmin'
+import { RequireAuth } from '../components/auth/RequireAuth'
 
 export const AppRouter = createBrowserRouter([
   {
@@ -11,23 +14,27 @@ export const AppRouter = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <QueryConsolePage />,
+        element: (
+          <RequireAuth>
+            <QueryConsolePage />
+          </RequireAuth>
+        ),
+      },
+      {
+        path: 'login',
+        element: <LoginPage />,
+      },
+      {
+        path: 'register',
+        element: <RegisterPage />,
       },
       {
         path: 'admin/:section?',
-        element: <AdminConsolePage />,
-      },
-      {
-        path: 'library',
-        element: <PlaceholderPage title="Library" description="Curated sources and uploaded artefacts will appear here." backTo="/" backLabel="Back to chat" />,
-      },
-      {
-        path: 'explore',
-        element: <PlaceholderPage title="Explore" description="Discovery workflows and templates will appear here." backTo="/" backLabel="Back to chat" />,
-      },
-      {
-        path: 'release-notes',
-        element: <PlaceholderPage title="Release notes" description="Changelog and deployment notes will appear here." backTo="/" backLabel="Back to chat" />,
+        element: (
+          <RequireAdmin>
+            <AdminConsolePage />
+          </RequireAdmin>
+        ),
       },
       {
         path: '*',

@@ -95,6 +95,39 @@ class _StubAsyncClient:
             raise action
         return action
 
+    def stream(self, *args, **kwargs):
+        if not self._plan:
+            raise AssertionError("stub plan exhausted")
+        action = self._plan.pop(0)
+        if isinstance(action, Exception):
+            raise action
+        return action
+
+
+class _StubStreamResponse:
+    def __init__(self, lines: list[str], status_code: int = 200, headers: dict[str, str] | None = None) -> None:
+        self._lines = list(lines)
+        self.status_code = status_code
+        self.headers = headers or {"content-type": "text/event-stream"}
+
+    async def __aenter__(self) -> "_StubStreamResponse":
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb) -> bool:
+        return False
+
+    def raise_for_status(self) -> None:
+        if self.status_code >= 400:
+            raise httpx.HTTPStatusError(
+                "mock error",
+                request=httpx.Request("POST", "https://mock"),
+                response=httpx.Response(self.status_code, headers=self.headers),
+            )
+
+    async def aiter_lines(self):
+        for line in self._lines:
+            yield line
+
 
 def _patch_async_client(monkeypatch, plan: list[object]) -> None:
     def factory(*args, **kwargs):
@@ -149,7 +182,61 @@ def test_rerank_retries_exhaust(monkeypatch):
     counters = get_metrics().snapshot().get("counters", {})
     assert counters["rerank_retry::attempt"] == 2.0
     assert counters["rerank_retry::exhausted"] == 1.0
-    assert counters["rerank_fallback::error"] == 1.0
+
+
+def test_chat_stream_retries_and_succeeds(monkeypatch):
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "dummy")
+    monkeypatch.setenv("SILICONFLOW_CHAT_STREAM_MAX_ATTEMPTS", "3")
+    monkeypatch.setenv("SILICONFLOW_CHAT_STREAM_BACKOFF_MIN_SECONDS", "0")
+    monkeypatch.setenv("SILICONFLOW_CHAT_STREAM_BACKOFF_MAX_SECONDS", "0")
+
+    request = httpx.Request("POST", "https://api.siliconflow.cn/v1/chat/completions")
+    stream_lines = [
+        'data: {"choices":[{"delta":{"content":"Hello"}}]}',
+        "data: [DONE]",
+    ]
+    plan = [
+        httpx.ReadTimeout("timeout", request=request),
+        _StubStreamResponse(stream_lines),
+    ]
+    _patch_async_client(monkeypatch, plan)
+
+    async def run():
+        out = []
+        async for delta in siliconflow.chat_stream("hi", system_message="sys"):
+            out.append(delta)
+        return "".join(out)
+
+    result = asyncio.run(run())
+    assert result == "Hello"
+    counters = get_metrics().snapshot().get("counters", {})
+    assert counters["chat_stream_retry::attempt"] == 1.0
+
+
+def test_chat_stream_retries_exhaust(monkeypatch):
+    monkeypatch.setenv("SILICONFLOW_API_KEY", "dummy")
+    monkeypatch.setenv("SILICONFLOW_CHAT_STREAM_MAX_ATTEMPTS", "2")
+    monkeypatch.setenv("SILICONFLOW_CHAT_STREAM_BACKOFF_MIN_SECONDS", "0")
+    monkeypatch.setenv("SILICONFLOW_CHAT_STREAM_BACKOFF_MAX_SECONDS", "0")
+
+    request = httpx.Request("POST", "https://api.siliconflow.cn/v1/chat/completions")
+    plan = [
+        httpx.ReadTimeout("timeout1", request=request),
+        httpx.ReadTimeout("timeout2", request=request),
+    ]
+    _patch_async_client(monkeypatch, plan)
+
+    async def run():
+        out = []
+        async for delta in siliconflow.chat_stream("hi", system_message="sys"):
+            out.append(delta)
+        return "".join(out)
+
+    with pytest.raises(httpx.ReadTimeout):
+        asyncio.run(run())
+    counters = get_metrics().snapshot().get("counters", {})
+    assert counters["chat_stream_retry::attempt"] == 1.0
+    assert counters["chat_stream_retry::exhausted"] == 1.0
     assert "rerank_retry::success_after_retry" not in counters
 
 

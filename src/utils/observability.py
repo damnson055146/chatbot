@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from contextlib import contextmanager
+from datetime import UTC, datetime
 import time
-from typing import Deque, Dict, List
+from typing import Any, Deque, Dict, List
+
+import copy
 
 from src.schemas.models import ServiceStatusCategory, ServiceStatusMetric, ServiceStatusResponse
 
@@ -22,7 +25,7 @@ _LOW_CONFIDENCE_THRESHOLDS = (0.1, 0.2)
 
 
 class RequestMetrics:
-    def __init__(self, percentile_window: int = 200) -> None:
+    def __init__(self, percentile_window: int = 200, history_window: int = 120) -> None:
         self._counts: Dict[str, int] = defaultdict(int)
         self._latency_sum: Dict[str, float] = defaultdict(float)
         self._latency_samples: Dict[str, Deque[float]] = defaultdict(lambda: deque(maxlen=percentile_window))
@@ -32,7 +35,11 @@ class RequestMetrics:
         self._rerank_fallbacks: int = 0
         self._low_confidence: int = 0
         self._citation_coverage_samples: Deque[float] = deque(maxlen=percentile_window)
+        self._retrieval_recall_samples: Deque[float] = deque(maxlen=percentile_window)
+        self._retrieval_mrr_samples: Deque[float] = deque(maxlen=percentile_window)
+        self._retrieval_eval_k: int | None = None
         self._counters: Dict[str, float] = defaultdict(float)
+        self._history: Deque[Dict[str, Any]] = deque(maxlen=history_window)
 
     def record(self, endpoint: str, duration_ms: float) -> None:
         self._counts[endpoint] += 1
@@ -56,6 +63,13 @@ class RequestMetrics:
         denominator = max(required, 1)
         coverage = min(max(citation_count / denominator, 0.0), 1.0)
         self._citation_coverage_samples.append(coverage)
+
+    def record_retrieval_eval(self, recall_at_k: float, mrr: float, k: int) -> None:
+        recall = min(max(recall_at_k, 0.0), 1.0)
+        rank = min(max(mrr, 0.0), 1.0)
+        self._retrieval_recall_samples.append(recall)
+        self._retrieval_mrr_samples.append(rank)
+        self._retrieval_eval_k = int(k)
 
     def increment_counter(self, name: str, amount: float = 1.0) -> None:
         self._counters[name] += amount
@@ -94,6 +108,17 @@ class RequestMetrics:
             diagnostics["citation_coverage_avg"] = sum(self._citation_coverage_samples) / len(self._citation_coverage_samples)
             diagnostics["citation_coverage_p50"] = citation_percentiles.get(50, 0.0)
             diagnostics["citation_coverage_p95"] = citation_percentiles.get(95, 0.0)
+        if self._retrieval_recall_samples:
+            recall_percentiles = _compute_percentiles(list(self._retrieval_recall_samples))
+            mrr_percentiles = _compute_percentiles(list(self._retrieval_mrr_samples))
+            diagnostics["retrieval_recall_avg"] = sum(self._retrieval_recall_samples) / len(self._retrieval_recall_samples)
+            diagnostics["retrieval_recall_p50"] = recall_percentiles.get(50, 0.0)
+            diagnostics["retrieval_recall_p95"] = recall_percentiles.get(95, 0.0)
+            diagnostics["retrieval_mrr_avg"] = sum(self._retrieval_mrr_samples) / len(self._retrieval_mrr_samples)
+            diagnostics["retrieval_mrr_p50"] = mrr_percentiles.get(50, 0.0)
+            diagnostics["retrieval_mrr_p95"] = mrr_percentiles.get(95, 0.0)
+            if self._retrieval_eval_k is not None:
+                diagnostics["retrieval_eval_k"] = float(self._retrieval_eval_k)
         data["diagnostics"] = diagnostics
 
         data["status"] = _build_status_block(
@@ -107,6 +132,19 @@ class RequestMetrics:
             data["counters"] = dict(self._counters)
         return data
 
+    def record_snapshot(self, snapshot: Dict[str, Any]) -> None:
+        entry = {
+            "timestamp": datetime.now(UTC),
+            "snapshot": copy.deepcopy(snapshot),
+        }
+        self._history.append(entry)
+
+    def history(self, limit: int = 30) -> List[Dict[str, Any]]:
+        if limit <= 0:
+            return []
+        entries = list(self._history)
+        return entries[-limit:] if limit else entries
+
     def reset(self) -> None:
         self._counts.clear()
         self._latency_sum.clear()
@@ -117,7 +155,11 @@ class RequestMetrics:
         self._rerank_fallbacks = 0
         self._low_confidence = 0
         self._citation_coverage_samples.clear()
+        self._retrieval_recall_samples.clear()
+        self._retrieval_mrr_samples.clear()
+        self._retrieval_eval_k = None
         self._counters.clear()
+        self._history.clear()
 
 
 @contextmanager

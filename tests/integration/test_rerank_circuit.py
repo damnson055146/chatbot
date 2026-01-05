@@ -5,7 +5,7 @@ import httpx
 import pytest
 
 from src.agents.rag_agent import answer_query
-from src.schemas.models import QueryRequest
+from src.schemas.models import Document, QueryRequest
 from src.utils import siliconflow, index_manager, session as session_utils, storage
 from src.utils.chunking import simple_paragraph_chunk
 from src.utils.observability import get_metrics
@@ -31,6 +31,7 @@ async def test_answer_query_rerank_circuit_open(tmp_path, monkeypatch):
         "Required documents include passport, bank statements, and admission letter."
     )
     chunks = simple_paragraph_chunk(content, doc_id="d1", max_chars=200)
+    storage.upsert_document(Document(doc_id="d1", source_name="d1"))
     storage.save_chunks("d1", chunks)
 
     siliconflow.reset_rerank_circuit()
@@ -60,7 +61,7 @@ async def test_answer_query_rerank_circuit_open(tmp_path, monkeypatch):
     monkeypatch.setattr(siliconflow.httpx, "AsyncClient", lambda *args, **kwargs: FailClient())
 
     query = QueryRequest(question="documents required", language="en", top_k=4, k_cite=2)
-    first_response = await answer_query(query)
+    first_response = await answer_query(query, user_id="test-user")
     assert first_response.citations
 
     counters = get_metrics().snapshot().get("counters", {})
@@ -74,7 +75,7 @@ async def test_answer_query_rerank_circuit_open(tmp_path, monkeypatch):
 
     monkeypatch.setattr(siliconflow.httpx, "AsyncClient", UnexpectedClient)
 
-    second_response = await answer_query(query)
+    second_response = await answer_query(query, user_id="test-user")
     assert second_response.citations
 
     counters = get_metrics().snapshot().get("counters", {})

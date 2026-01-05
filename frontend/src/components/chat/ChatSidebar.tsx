@@ -1,4 +1,6 @@
-import { useState, type MouseEvent } from 'react'
+import { useMemo, useState, type MouseEvent } from 'react'
+import { useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { ConversationSummary } from './types'
 
 interface ChatSidebarProps {
@@ -9,42 +11,32 @@ interface ChatSidebarProps {
   onSelect: (sessionId: string) => void
   onCreateNew: () => void
   onTogglePin: (sessionId: string) => void
-  onRename: (sessionId: string, nextTitle: string) => void
+  onRenameRequest: (conversation: ConversationSummary) => void
   onArchiveToggle: (sessionId: string) => void
   showArchived: boolean
   onToggleArchivedVisibility: () => void
   isLoading: boolean
   onSettings: () => void
-  onWorkspaceNavigate?: (label: string) => void
-  onSystemNavigate?: (label: string) => void
+  onWorkspaceNavigate?: (key: string) => void
+  onSystemNavigate?: (key: string) => void
   onDelete: (sessionId: string) => void
   onCollapseToggle?: () => void
+  showAdminConsole?: boolean
 }
 
-const NAV_ITEMS = [
-  { label: 'Chat', icon: '💬' },
-  { label: 'Library', icon: '📚' },
-  { label: 'Explore', icon: '🧭' },
-]
+const NAV_ITEMS: Array<{ key: string; icon: string }> = [{ key: 'nav.chat', icon: '💬' }]
 
-const SYSTEM_ITEMS = [
-  { label: 'System status', icon: '🩺' },
-  { label: 'Metrics', icon: '📈' },
-  { label: 'Sources', icon: '🗂️' },
-  { label: 'Audit log', icon: '🧾' },
-  { label: 'Admin console', icon: '🛠️' },
-  { label: 'Release notes', icon: '🗒️' },
-]
+const SYSTEM_ITEMS: Array<{ key: string; icon: string }> = [{ key: 'nav.admin_console', icon: '🛠️' }]
 
-const formatRelativeTime = (iso?: string) => {
-  if (!iso) return 'moments ago'
+const formatRelativeTime = (t: (key: string, opts?: any) => string, iso?: string) => {
+  if (!iso) return t('time.moments_ago')
   const diff = Date.now() - new Date(iso).getTime()
   const minutes = Math.max(1, Math.round(diff / 60000))
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return t('time.minutes_ago', { count: minutes })
   const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return t('time.hours_ago', { count: hours })
   const days = Math.round(hours / 24)
-  return `${days}d ago`
+  return t('time.days_ago', { count: days })
 }
 
 const sectionTitleClass = 'text-[11px] font-semibold uppercase tracking-[0.45em] text-slate-400'
@@ -56,7 +48,7 @@ export function ChatSidebar({
   onSelect,
   onCreateNew,
   onTogglePin,
-  onRename,
+  onRenameRequest,
   onArchiveToggle,
   showArchived,
   onToggleArchivedVisibility,
@@ -66,10 +58,11 @@ export function ChatSidebar({
   onSystemNavigate,
   onDelete,
   onCollapseToggle,
+  showAdminConsole = true,
 }: ChatSidebarProps) {
+  const location = useLocation()
+  const { t } = useTranslation()
   const [actionMenuId, setActionMenuId] = useState<string | null>(null)
-  const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(true)
-  const [systemMenuOpen, setSystemMenuOpen] = useState(false)
   const normalizedSearch = searchTerm.trim().toLowerCase()
   const filtered = normalizedSearch
     ? conversations.filter((conversation) => conversation.title.toLowerCase().includes(normalizedSearch))
@@ -82,51 +75,17 @@ export function ChatSidebar({
 
   const handleRename = (conversation: ConversationSummary, event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation()
-    const nextTitle = window.prompt('Rename conversation', conversation.title)
-    if (nextTitle === null) return
-    onRename(conversation.sessionId, nextTitle.trim())
+    onRenameRequest(conversation)
   }
 
-const renderNavSection = (
-  title: string,
-  items: typeof NAV_ITEMS,
-  handler?: (label: string) => void,
-  muted = false,
-  isOpen = false,
-  onToggle?: () => void,
-) => (
-  <section className="mt-6">
-    <div className="flex items-center justify-between">
-      <p className={`${sectionTitleClass} ${muted ? 'opacity-70' : ''}`}>{title}</p>
-      <button
-        type="button"
-        aria-label={`${title} menu`}
-        className="rounded-full border border-slate-200 px-2 py-1 text-xs text-slate-500 transition hover:border-slate-300"
-        onClick={onToggle}
-      >
-        ⋯
-      </button>
-    </div>
-    {isOpen ? (
-      <div className="mt-3 rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <ul className="divide-y divide-slate-100 text-sm text-slate-700">
-          {items.map((item) => (
-            <li key={item.label}>
-              <button
-                type="button"
-                className="flex w-full items-center gap-2 px-4 py-2 text-left hover:bg-slate-50"
-                onClick={() => handler?.(item.label)}
-              >
-                <span>{item.icon}</span>
-                <span>{item.label}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </div>
-    ) : null}
-  </section>
-)
+  const activeWorkspace = 'nav.chat'
+
+  const activeSystem = useMemo(() => {
+    const path = location.pathname
+    if (path.startsWith('/admin')) return 'nav.admin_console'
+    return null
+  }, [location.pathname])
+  const systemItems = showAdminConsole ? SYSTEM_ITEMS : []
 
   const renderConversationList = (items: ConversationSummary[]) => {
     if (items.length === 0) return null
@@ -157,16 +116,14 @@ const renderNavSection = (
               >
                 <div className="flex items-start justify-between gap-3 text-sm font-semibold">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate">{conversation.title || 'Untitled conversation'}</p>
-                    <p className={`mt-1 text-xs ${metaColor}`}>{formatRelativeTime(conversation.updatedAt)}</p>
+                    <p className="truncate">{conversation.title || t('sidebar.untitled_conversation')}</p>
+                    <p className={`mt-1 text-xs ${metaColor}`}>{formatRelativeTime(t, conversation.updatedAt)}</p>
                   </div>
                   <div className="relative">
                     <button
                       type="button"
-                      aria-label="Conversation actions"
-                      className={`rounded-full border border-transparent px-2 py-1 text-lg leading-none ${
-                        isActive ? 'text-white hover:border-white/40' : 'text-slate-500 hover:border-slate-300'
-                      }`}
+                      aria-label={t('sidebar.actions_label')}
+                      className="rounded-full border border-transparent px-2 py-1 text-lg leading-none text-slate-500 hover:border-slate-300"
                       onClick={(event) => {
                         event.stopPropagation()
                         setActionMenuId(isMenuOpen ? null : conversation.sessionId)
@@ -188,7 +145,7 @@ const renderNavSection = (
                             setActionMenuId(null)
                           }}
                         >
-                          Rename
+                          {t('sidebar.action.rename')}
                         </button>
                         <button
                           type="button"
@@ -199,7 +156,7 @@ const renderNavSection = (
                             setActionMenuId(null)
                           }}
                         >
-                          {conversation.pinned ? 'Unpin' : 'Pin'}
+                          {conversation.pinned ? t('sidebar.action.unpin') : t('sidebar.action.pin')}
                         </button>
                         <button
                           type="button"
@@ -210,7 +167,7 @@ const renderNavSection = (
                             setActionMenuId(null)
                           }}
                         >
-                          {conversation.archived ? 'Restore' : 'Archive'}
+                          {conversation.archived ? t('sidebar.action.restore') : t('sidebar.action.archive')}
                         </button>
                         <button
                           type="button"
@@ -221,15 +178,13 @@ const renderNavSection = (
                             setActionMenuId(null)
                           }}
                         >
-                          Delete
+                          {t('sidebar.action.delete')}
                         </button>
                       </div>
                     ) : null}
                   </div>
                 </div>
-                <p className={`mt-2 text-xs ${metaColor}`}>
-                  {conversation.slotCount} slot{conversation.slotCount === 1 ? '' : 's'}
-                </p>
+                <p className={`mt-2 text-xs ${metaColor}`}>{t('sidebar.slots_count', { count: conversation.slotCount })}</p>
               </div>
             </li>
           )
@@ -240,23 +195,27 @@ const renderNavSection = (
 
   const renderPinned = () => {
     if (pinnedList.length === 0) {
-      return <p className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-4 text-sm text-slate-400">No pinned conversations yet.</p>
+      return (
+        <p className="mt-3 rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-4 text-sm text-slate-400">
+          {t('sidebar.no_pinned')}
+        </p>
+      )
     }
     return renderConversationList(pinnedList)
   }
 
   return (
-    <div className="flex h-full flex-col border-r border-slate-200 bg-[#F8F8FA] px-4 pb-6 pt-4 text-slate-900">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain border-r border-slate-200 bg-[#F8F8FA] px-4 pb-6 pt-4 text-slate-900">
       <div className="flex items-center justify-between rounded-3xl bg-white/80 px-4 py-3 shadow-sm">
         <div>
-          <p className="text-sm font-semibold">Study Abroad</p>
-          <p className="text-xs text-slate-400">Assistant Console</p>
+          <p className="text-sm font-semibold">{t('sidebar.study_abroad')}</p>
+          <p className="text-xs text-slate-400">{t('sidebar.assistant_console')}</p>
         </div>
         <div className="flex items-center gap-2">
           {onCollapseToggle ? (
             <button
               type="button"
-              aria-label="Collapse sidebar"
+              aria-label={t('sidebar.collapse_sidebar')}
               className="rounded-full border border-slate-200 px-2 py-1 text-xs text-slate-500 transition hover:border-slate-300"
               onClick={onCollapseToggle}
             >
@@ -268,27 +227,42 @@ const renderNavSection = (
             className="rounded-full border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600 transition hover:border-slate-300"
             onClick={onCreateNew}
           >
-            + New chat
+            {t('sidebar.new_chat')}
           </button>
         </div>
       </div>
 
-      {renderNavSection(
-        'Workspace',
-        NAV_ITEMS,
-        onWorkspaceNavigate,
-        false,
-        workspaceMenuOpen,
-        () => setWorkspaceMenuOpen((prev) => !prev),
-      )}
-      {renderNavSection(
-        'System menu',
-        SYSTEM_ITEMS,
-        onSystemNavigate,
-        true,
-        systemMenuOpen,
-        () => setSystemMenuOpen((prev) => !prev),
-      )}
+      <section className="mt-6">
+        <p className={sectionTitleClass}>{t('sidebar.workspace')}</p>
+        <div className="mt-3 space-y-2">
+          {NAV_ITEMS.map((item) => (
+            <NavButton
+              key={item.key}
+              label={t(item.key)}
+              icon={item.icon}
+              active={item.key === activeWorkspace}
+              onClick={() => onWorkspaceNavigate?.(item.key)}
+            />
+          ))}
+        </div>
+      </section>
+
+      {systemItems.length > 0 ? (
+        <section className="mt-6">
+          <p className={`${sectionTitleClass} opacity-80`}>{t('sidebar.system')}</p>
+          <div className="mt-3 space-y-2">
+            {systemItems.map((item) => (
+              <NavButton
+                key={item.key}
+                label={t(item.key)}
+                icon={item.icon}
+                active={item.key === activeSystem}
+                onClick={() => onSystemNavigate?.(item.key)}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="mt-6">
         <div className="relative">
@@ -297,13 +271,13 @@ const renderNavSection = (
             type="search"
             value={searchTerm}
             onChange={(event) => onSearchChange(event.target.value)}
-            placeholder="Search conversations"
+            placeholder={t('sidebar.search_conversations_placeholder')}
             className="w-full rounded-[999px] border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm text-slate-700 shadow-inner focus:border-slate-400 focus:outline-none"
           />
         </div>
 
         <div className="mt-6 flex items-center justify-between">
-          <span className={sectionTitleClass}>Pinned</span>
+          <span className={sectionTitleClass}>{t('sidebar.pinned')}</span>
           <button
             type="button"
             className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.3em] ${
@@ -312,30 +286,30 @@ const renderNavSection = (
             onClick={onToggleArchivedVisibility}
             disabled={archivedList.length === 0}
           >
-            {showArchived ? 'Hide' : `Archived (${archivedList.length})`}
+            {showArchived ? t('common.hide') : `${t('sidebar.archived')} (${archivedList.length})`}
           </button>
         </div>
         <div className="mt-4 space-y-3">
           {renderPinned()}
           {showArchived && archivedList.length > 0 ? (
             <div>
-              <p className="mt-6 text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">Archived</p>
+              <p className="mt-6 text-xs font-semibold uppercase tracking-[0.35em] text-slate-400">{t('sidebar.archived')}</p>
               <div className="mt-3">{renderConversationList(archivedList)}</div>
             </div>
           ) : null}
         </div>
       </section>
 
-      <section className="mt-6 flex-1 overflow-y-auto">
-        <p className={sectionTitleClass}>Conversations</p>
+      <section className="mt-6">
+        <p className={sectionTitleClass}>{t('sidebar.conversations')}</p>
         <div className="mt-4">
           {isLoading ? (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-white/70 px-4 py-6 text-center text-sm text-slate-500">
-              Loading conversations…
+              {t('common.loading')}
             </div>
           ) : conversations.length === 0 ? (
             <div className="rounded-3xl border border-dashed border-slate-200 bg-white/70 px-4 py-6 text-center text-sm text-slate-500">
-              No saved conversations yet.
+              {t('sidebar.no_conversations')}
             </div>
           ) : (
             renderConversationList(regularList)
@@ -349,7 +323,7 @@ const renderNavSection = (
           onClick={onSettings}
           className="flex w-full items-center justify-between rounded-3xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-slate-300"
         >
-          Settings
+          {t('sidebar.settings')}
           <span className="text-xs text-slate-400">⌘ ,</span>
         </button>
       </div>
@@ -358,3 +332,33 @@ const renderNavSection = (
 }
 
 export default ChatSidebar
+
+function NavButton({
+  label,
+  icon,
+  active,
+  muted,
+  onClick,
+}: {
+  label: string
+  icon: string
+  active: boolean
+  muted?: boolean
+  onClick?: () => void
+}) {
+  return (
+    <button
+      type="button"
+      className={`flex w-full items-center justify-between rounded-xl px-4 py-3 text-left text-sm transition ${
+        active ? 'bg-slate-900 text-white' : 'bg-transparent text-slate-700 hover:bg-white/70'
+      } ${muted ? 'opacity-80' : ''}`}
+      onClick={onClick}
+    >
+      <span className="flex items-center gap-2">
+        <span aria-hidden="true">{icon}</span>
+        <span className="font-semibold">{label}</span>
+      </span>
+      <span className={`text-xs ${active ? 'text-white/70' : 'text-slate-400'}`}>›</span>
+    </button>
+  )
+}

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useActiveSessions } from '../../hooks/useActiveSessions'
+import { useTranslation } from 'react-i18next'
 
 interface SessionPickerProps {
   currentSessionId?: string
@@ -7,6 +8,7 @@ interface SessionPickerProps {
 }
 
 export function SessionPicker({ currentSessionId, onSelect }: SessionPickerProps) {
+  const { t } = useTranslation()
   const { data: sessions = [], isLoading, refetch } = useActiveSessions()
 
   const sortedSessions = useMemo(() => {
@@ -21,17 +23,17 @@ export function SessionPicker({ currentSessionId, onSelect }: SessionPickerProps
     <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
       <header className="mb-3 flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">Active sessions</h3>
-          <p className="text-xs text-slate-500">Resume an existing conversation tracked by the backend.</p>
+          <h3 className="text-sm font-semibold text-slate-900">{t('query.sessions.title')}</h3>
+          <p className="text-xs text-slate-500">{t('query.sessions.subtitle')}</p>
         </div>
         <button type="button" className="text-xs font-medium text-brand-primary" onClick={() => void refetch()}>
-          Refresh
+          {t('common.refresh')}
         </button>
       </header>
       {isLoading ? (
-        <p className="text-sm text-slate-500">Loading sessions...</p>
+        <p className="text-sm text-slate-500">{t('query.sessions.loading')}</p>
       ) : sortedSessions.length === 0 ? (
-        <p className="text-sm text-slate-500">No active sessions detected.</p>
+        <p className="text-sm text-slate-500">{t('query.sessions.none')}</p>
       ) : (
         <ul className="space-y-3 text-sm text-slate-700">
           {sortedSessions.map((session) => (
@@ -46,8 +48,8 @@ export function SessionPicker({ currentSessionId, onSelect }: SessionPickerProps
               <div className="flex flex-col">
                 <span className="font-medium">{session.session_id.slice(0, 12)}</span>
                 <span className="text-xs text-slate-500">
-                  Slots: {session.slot_count ?? Object.keys(session.slots ?? {}).length} ¡¤ TTL:{' '}
-                  {session.remaining_ttl_seconds ? `${session.remaining_ttl_seconds}s` : 'n/a'}
+                  {t('query.sessions.slots')}: {session.slot_count ?? Object.keys(session.slots ?? {}).length} Â· {t('query.sessions.ttl')}:{' '}
+                  {session.remaining_ttl_seconds ? `${session.remaining_ttl_seconds}s` : t('common.na')}
                 </span>
               </div>
               <button
@@ -55,7 +57,7 @@ export function SessionPicker({ currentSessionId, onSelect }: SessionPickerProps
                 className="rounded-md border border-slate-300 px-3 py-1 text-xs font-medium"
                 onClick={() => onSelect(session.session_id)}
               >
-                {session.session_id === currentSessionId ? 'Current' : 'Resume'}
+                {session.session_id === currentSessionId ? t('query.sessions.current') : t('query.sessions.resume')}
               </button>
             </li>
           ))}

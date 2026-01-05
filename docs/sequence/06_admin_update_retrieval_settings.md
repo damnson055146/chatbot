@@ -1,0 +1,17 @@
+# Admin Update Retrieval Settings
+
+```plantuml
+@startuml
+title Admin Update Retrieval Settings
+autonumber
+actor Admin
+participant System
+
+Admin -> System : Open admin config
+System -> Admin : Load retrieval settings
+Admin -> System : Edit retrieval settings
+Admin -> System : Click save
+System -> Admin : Update retrieval settings
+System -> Admin : Refresh config view
+@enduml
+```

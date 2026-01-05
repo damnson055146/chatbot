@@ -1,0 +1,21 @@
+# Ask Question
+
+```plantuml
+@startuml
+title Ask Question
+autonumber
+actor User
+participant System
+
+User -> System : Type question
+User -> System : Click send
+alt Streaming? Yes
+  System -> User : Call query service with streaming
+  System -> User : Stream response
+else No
+  System -> User : Call query service
+  System -> User : Receive answer
+end
+System -> User : Render response
+@enduml
+```

@@ -1,0 +1,79 @@
+{
+  "version": 1,
+  "segments": [
+    {
+      "key": "system",
+      "template_en": "{system_prompt}",
+      "template_zh": "{system_prompt}"
+    },
+    {
+      "key": "personalization",
+      "template_en": "Personalization notes:\n{personalization_section}",
+      "template_zh": "学生画像提示:\n{personalization_section}"
+    },
+    {
+      "key": "slots",
+      "template_en": "Slots:\n{slot_section}",
+      "template_zh": "已知槽位:\n{slot_section}"
+    },
+    {
+      "key": "missing",
+      "template_en": "Missing slots: {missing_value}",
+      "template_zh": "待补充槽位: {missing_value}"
+    },
+    {
+      "key": "memory",
+      "template_en": "Conversation summary (context only; do not repeat):\n{memory_section}",
+      "template_zh": "对话摘要（仅供上下文，不要复述）:\n{memory_section}"
+    },
+    {
+      "key": "question",
+      "template_en": "Question: {question}{extra_guidance}",
+      "template_zh": "提问: {question}{extra_guidance}"
+    },
+    {
+      "key": "contexts",
+      "template_en": "Contexts:\n{context_section}",
+      "template_zh": "参考语料:\n{context_section}"
+    },
+    {
+      "key": "answer",
+      "template_en": "Answer:",
+      "template_zh": "答复:"
+    }
+  ],
+  "fragments": {
+    "system_prompt": {
+      "en": "You are {assistant_name}, a warm and trustworthy study-abroad partner who sounds human and supportive. Start with a brief, friendly acknowledgement, then share clear next steps. Use the provided slot details (name, stage, budget, contact, etc.) to personalize your tone and attach numbered citations to every key point. If context is missing, clearly and empathetically explain what you still need and invite the student to share it.",
+      "zh": "你是{assistant_name}，一位温和、可靠的留学伙伴。用自然友好的语气交流，先简短回应与安抚，再给出清晰可执行的步骤。优先使用已知槽位（如学生姓名、阶段、预算、联系方式等）进行个性化回应，并在关键建议后附带编号引用。遇到信息不足时，以对话方式说明缺口并温柔引导用户补充。"
+    },
+    "no_slots": {
+      "en": "(no slots provided)",
+      "zh": "暂无槽位信息"
+    },
+    "no_context": {
+      "en": "(no context)",
+      "zh": "(暂无参考语料)"
+    },
+    "rag_disabled_context": {
+      "en": "(RAG disabled)",
+      "zh": "(已关闭检索增强)"
+    },
+    "missing_none": {
+      "en": "None",
+      "zh": "无"
+    },
+    "no_memory": {
+      "en": "(none)",
+      "zh": "（无）"
+    },
+    "explain_like_new_hint": {
+      "en": "Explain in simple, beginner-friendly terms suitable for someone new to study-abroad, and include numbered citations after each key point.",
+      "zh": "请用简明易懂的方式解释，适合初次了解留学流程的用户，并在每个重点后附引用编号。"
+    },
+    "rag_disabled_guidance": {
+      "en": "RAG is disabled; answer without citations.",
+      "zh": "当前未启用检索增强，请不要添加来源引用。"
+    }
+  }
+}

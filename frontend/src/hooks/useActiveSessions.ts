@@ -1,10 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { fetchActiveSessions, type SessionStatePayload } from '../services/apiClient'
 
-export function useActiveSessions() {
+const EMPTY_SESSIONS: SessionStatePayload[] = []
+
+export function useActiveSessions(scope?: string, enabled = true) {
   return useQuery<SessionStatePayload[], Error>({
-    queryKey: ['sessions'],
+    queryKey: ['sessions', scope ?? 'default'],
     queryFn: fetchActiveSessions,
     staleTime: 1000 * 30,
+    placeholderData: EMPTY_SESSIONS,
+    enabled,
   })
 }

@@ -1,0 +1,33 @@
+@startuml
+skinparam shadowing false
+skinparam backgroundColor White
+skinparam activityBorderColor Black
+skinparam activityBackgroundColor White
+skinparam activityDiamondBorderColor Black
+skinparam activityDiamondBackgroundColor White
+skinparam activityStartColor Black
+skinparam activityEndColor Black
+skinparam swimlaneBorderColor Black
+skinparam swimlaneBorderThickness 1
+skinparam swimlaneTitleBackgroundColor White
+skinparam swimlaneTitleBorderColor Black
+skinparam swimlaneTitleBorderThickness 1
+skinparam padding 20
+title Register
+|User|
+start
+:Open register screen;
+:Enter account details;
+:Submit registration;
+|System|
+:Create account;
+if (Created?) then (Yes)
+:Sign in new account;
+:Store access token;
+:Open chat workspace;
+else (No)
+:Show registration error;
+end
+endif
+stop
+@enduml

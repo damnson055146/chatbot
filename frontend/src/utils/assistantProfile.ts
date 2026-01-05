@@ -1,3 +1,5 @@
+import type { TFunction } from 'i18next'
+
 export interface AssistantProfileHighlight {
   title: string
   description: string
@@ -13,61 +15,65 @@ export interface AssistantProfileConfig {
     base: string
     ring: string
     face: string
+    image_url?: string | null
   }
   highlights: AssistantProfileHighlight[]
-  openingStatements: string[]
 }
 
-export const ASSISTANT_PROFILE: AssistantProfileConfig = {
-  name: 'Lumi',
-  title: 'Study Abroad Copilot',
-  tagline: 'Planning visas, admissions, and scholarships with calm clarity.',
-  avatar: {
-    accent: '#2563eb',
-    base: '#e0f2ff',
-    ring: '#bfdbfe',
-    face: '#0f172a',
-  },
-  highlights: [
-    {
-      title: 'Visa readiness scan',
-      description: 'I can walk you through interview prep, wait times, and documents in one go.',
-      prompt: 'Help me review my visa readiness for an upcoming interview.',
-    },
-    {
-      title: 'Application roadmap',
-      description: 'Let’s map deadlines across shortlists so nothing slips through.',
-      prompt: 'Build a simple application roadmap for my top universities.',
-    },
-    {
-      title: 'Funding leads',
-      description: 'Share scholarships or assistantships that match my background.',
-      prompt: 'Suggest scholarships or assistantships for an international engineering student.',
-    },
-  ],
-  openingStatements: [
-    'I keep a running log of embassy wait times and scholarship drops so you get answers that reflect this week’s reality.',
-    'I condense policy updates from immigration offices so your plan is grounded in what officers are enforcing now.',
-    'I pair every suggestion with the paperwork it impacts so you never wonder what to prepare next.',
-    'My briefings each morning cover visas, admissions, and funding so you can confidently focus on the decision that’s due today.',
-  ],
+export const ASSISTANT_AVATAR = {
+  accent: '#2563eb',
+  base: '#e0f2ff',
+  ring: '#bfdbfe',
+  face: '#0f172a',
+  image_url: null,
+} as const
+
+export interface AssistantProfileOverrides {
+  name?: string | null
+  avatar?: Partial<AssistantProfileConfig['avatar']> | null
 }
 
-const timeSegments: Array<{ label: string; start: number; end: number }> = [
-  { label: 'Good morning', start: 5, end: 11 },
-  { label: 'Good afternoon', start: 11, end: 17 },
-  { label: 'Good evening', start: 17, end: 22 },
-]
+export const getAssistantProfile = (t: TFunction): AssistantProfileConfig => {
+  return {
+    name: String(t('assistant.name')),
+    title: String(t('assistant.title')),
+    tagline: String(t('assistant.tagline')),
+    avatar: ASSISTANT_AVATAR,
+    highlights: (t('assistant.highlights', { returnObjects: true }) ?? []) as AssistantProfileHighlight[],
+  }
+}
 
-export const getAssistantGreeting = (referenceDate = new Date()): string => {
+export const mergeAssistantProfile = (
+  base: AssistantProfileConfig,
+  overrides?: AssistantProfileOverrides | null,
+): AssistantProfileConfig => {
+  if (!overrides) return base
+  const name = overrides.name?.trim()
+  const avatarOverrides = overrides.avatar ?? {}
+  const avatar = {
+    ...base.avatar,
+    ...Object.fromEntries(
+      Object.entries(avatarOverrides).filter(([, value]) => typeof value === 'string' && value.trim().length > 0),
+    ),
+  }
+  return {
+    ...base,
+    name: name && name.length > 0 ? name : base.name,
+    avatar,
+  }
+}
+
+export const getAssistantGreeting = (t: TFunction, referenceDate = new Date()): string => {
   const hour = referenceDate.getHours()
-  const segment = timeSegments.find((slot) => hour >= slot.start && hour < slot.end)
-  return segment?.label ?? 'Hello'
+  if (hour >= 5 && hour < 11) return String(t('assistant.greeting.morning'))
+  if (hour >= 11 && hour < 17) return String(t('assistant.greeting.afternoon'))
+  if (hour >= 17 && hour < 22) return String(t('assistant.greeting.evening'))
+  return String(t('assistant.greeting.default'))
 }
 
-export const getAssistantOpeningStatement = (referenceDate = new Date()): string => {
-  const statements = ASSISTANT_PROFILE.openingStatements
+export const getAssistantOpeningStatement = (t: TFunction, referenceDate = new Date()): string => {
+  const statements = (t('assistant.opening_statements', { returnObjects: true }) ?? []) as string[]
   if (!statements.length) return ''
   const index = referenceDate.getDate() % statements.length
-  return statements[index]
+  return String(statements[index] ?? '')
 }

@@ -42,8 +42,7 @@ def main() -> None:
     print(json.dumps(resp["slot_suggestions"], ensure_ascii=False, indent=2))
     session_id = resp["session_id"]
 
-    print("
---- Fill target country and continue (EN) ---")
+    print("\n--- Fill target country and continue (EN) ---")
     follow_up = query(
         "What documents are required for student visa?",
         language="en",

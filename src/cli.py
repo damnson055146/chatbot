@@ -8,14 +8,15 @@ from typing import Any, Dict
 
 import yaml
 import uvicorn
+from pydantic import ValidationError
 
 from src.agents.rag_agent import answer_query
-from src.pipelines.ingest import ingest_file
-from src.schemas.models import QueryRequest
+from src.pipelines.ingest import ingest_content, ingest_file
+from src.schemas.models import BulkIngestRequest, QueryRequest
 from src.utils.env import load_env_file
 from src.utils.index_manager import get_index_manager
 from src.utils.logging import get_logger
-from src.utils.session import get_session_store
+from src.utils.conversation_store import get_conversation_store
 
 load_env_file()
 log = get_logger(__name__)
@@ -30,6 +31,18 @@ def _load_config(path: str | None) -> Dict[str, Any]:
     with cfg_path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     return data
+
+
+def _load_bulk_manifest(path: Path) -> BulkIngestRequest:
+    if not path.exists():
+        raise SystemExit(f"Bulk ingest manifest not found: {path}")
+    payload = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    if isinstance(payload, list):
+        payload = {"documents": payload}
+    try:
+        return BulkIngestRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise SystemExit(f"Bulk ingest manifest validation failed:\n{exc}") from exc
 
 
 def _apply_config(config: Dict[str, Any]) -> None:
@@ -93,6 +106,67 @@ def cmd_ingest(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     )
 
 
+def cmd_ingest_bulk(args: argparse.Namespace, config: Dict[str, Any]) -> None:
+    manifest_path = Path(args.manifest)
+    request = _load_bulk_manifest(manifest_path)
+    base_dir = Path(args.base_dir) if args.base_dir else manifest_path.parent
+    failures: list[str] = []
+
+    for item in request.documents:
+        try:
+            if item.path:
+                resolved_path = Path(item.path)
+                if not resolved_path.is_absolute():
+                    resolved_path = base_dir / resolved_path
+                if not resolved_path.exists():
+                    raise FileNotFoundError(f"Input file not found: {resolved_path}")
+                content = resolved_path.read_text(encoding="utf-8", errors="ignore")
+                doc_id = item.doc_id or resolved_path.stem
+                result = ingest_content(
+                    content,
+                    source_name=item.source_name,
+                    doc_id=doc_id,
+                    language=item.language,
+                    domain=item.domain,
+                    freshness=item.freshness,
+                    url=item.url,
+                    tags=item.tags,
+                    extra=item.extra,
+                    max_chars=item.max_chars,
+                    overlap=item.overlap,
+                )
+            else:
+                result = ingest_content(
+                    item.content or "",
+                    source_name=item.source_name,
+                    doc_id=item.doc_id,
+                    language=item.language,
+                    domain=item.domain,
+                    freshness=item.freshness,
+                    url=item.url,
+                    tags=item.tags,
+                    extra=item.extra,
+                    max_chars=item.max_chars,
+                    overlap=item.overlap,
+                )
+            log.info(
+                "bulk_ingest_item_complete",
+                doc_id=result.document.doc_id,
+                chunks=result.chunk_count,
+            )
+        except Exception as exc:
+            message = f"{item.source_name}: {exc}"
+            log.error("bulk_ingest_item_failed", source_name=item.source_name, error=str(exc))
+            if not args.continue_on_error:
+                raise SystemExit(message) from exc
+            failures.append(message)
+
+    if failures:
+        log.warning("bulk_ingest_completed_with_errors", failures=len(failures))
+        for entry in failures:
+            print(entry)
+
+
 def cmd_query(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     app_cfg = config.get("app", {})
     language = args.language or app_cfg.get("language", "auto")
@@ -112,7 +186,7 @@ def cmd_query(args: argparse.Namespace, config: Dict[str, Any]) -> None:
     )
 
     async def run() -> None:
-        resp = await answer_query(req)
+        resp = await answer_query(req, user_id=args.user_id or "cli")
         log.info("answer", trace_id=resp.trace_id, session_id=resp.session_id)
         print(resp.answer)
         for i, c in enumerate(resp.citations, 1):
@@ -136,29 +210,31 @@ def cmd_query(args: argparse.Namespace, config: Dict[str, Any]) -> None:
 
 
 def cmd_session(args: argparse.Namespace, config: Dict[str, Any]) -> None:
-    store = get_session_store()
+    store = get_conversation_store()
+    user_id = args.user_id or "cli"
     if args.list:
-        sessions = store.list_sessions()
+        sessions = store.list_sessions(user_id)
         if not sessions:
-            print("No active sessions.")
+            print("No sessions.")
             return
         for state in sessions:
-            ttl = state.remaining_ttl_seconds if state.remaining_ttl_seconds is not None else "n/a"
-            print(f"{state.session_id} | lang={state.language} | slots={state.slot_count} | ttl={ttl}s | updated={state.updated_at.isoformat()}")
+            print(
+                f"{state.session_id} | lang={state.language} | slots={state.slot_count} | updated={state.updated_at.isoformat()}"
+            )
         return
 
     if not args.session_id:
         raise SystemExit("Provide --session-id or --list to manage sessions.")
 
     if args.clear:
-        if store.get(args.session_id) is None:
+        if store.get_session(user_id, args.session_id) is None:
             print("Session not found.")
             return
-        store.clear(args.session_id)
+        store.delete_session(user_id, args.session_id)
         print(f"Cleared session {args.session_id}")
         return
 
-    payload = store.export(args.session_id)
+    payload = store.get_session(user_id, args.session_id)
     if payload is None:
         print("Session not found.")
         return
@@ -170,8 +246,6 @@ def cmd_session(args: argparse.Namespace, config: Dict[str, Any]) -> None:
             print(f" - {key}: {value}")
     else:
         print("Slots: (none)")
-    ttl = payload.remaining_ttl_seconds if payload.remaining_ttl_seconds is not None else "n/a"
-    print(f"TTL remaining: {ttl}s")
     print(f"Slot count: {payload.slot_count}")
     print(f"Created: {payload.created_at.isoformat()}")
     print(f"Updated: {payload.updated_at.isoformat()}")
@@ -231,6 +305,12 @@ def main() -> None:
     p_ing.add_argument("--overlap", type=int, default=120)
     p_ing.set_defaults(func=cmd_ingest)
 
+    p_ing_bulk = sub.add_parser("ingest-bulk", help="Ingest multiple documents from a manifest file")
+    p_ing_bulk.add_argument("manifest", help="Path to YAML/JSON manifest")
+    p_ing_bulk.add_argument("--base-dir", help="Base directory for relative paths", default=None)
+    p_ing_bulk.add_argument("--continue-on-error", action="store_true", help="Continue after ingest failures")
+    p_ing_bulk.set_defaults(func=cmd_ingest_bulk)
+
     p_q = sub.add_parser("query", help="Ask a question against the indexed corpus")
     p_q.add_argument("question", help="User question")
     p_q.add_argument("--language")
@@ -243,6 +323,7 @@ def main() -> None:
         help="Provide slot values as key=value; repeat for multiple slots",
     )
     p_q.add_argument("--session-id")
+    p_q.add_argument("--user-id", help="User identifier for conversation history", default=None)
     p_q.add_argument(
         "--reset-slot",
         action="append",
@@ -251,10 +332,11 @@ def main() -> None:
     )
     p_q.set_defaults(func=cmd_query)
 
-    p_session = sub.add_parser("session", help="Inspect or manage in-memory sessions")
+    p_session = sub.add_parser("session", help="Inspect or manage stored sessions")
     p_session.add_argument("--list", action="store_true", help="List all active sessions")
     p_session.add_argument("--session-id", help="Session identifier to inspect or clear")
     p_session.add_argument("--clear", action="store_true", help="Clear the specified session")
+    p_session.add_argument("--user-id", help="User identifier for session storage", default=None)
     p_session.set_defaults(func=cmd_session)
 
 

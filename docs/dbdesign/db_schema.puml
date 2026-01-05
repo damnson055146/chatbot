@@ -1,0 +1,64 @@
+@startuml
+hide circle
+skinparam linetype ortho
+skinparam entity {
+  BackgroundColor White
+  BorderColor Black
+}
+
+title ERD
+
+entity "documents" as documents {
+  * doc_id : TEXT
+  --
+  source_name : TEXT
+  language : TEXT
+  url : TEXT
+  domain : TEXT
+  freshness : TEXT
+  checksum : TEXT
+  version : INTEGER
+  updated_at : TEXT
+  tags : TEXT
+  extra : TEXT
+}
+
+entity "chunks" as chunks {
+  * chunk_id : TEXT
+  --
+  doc_id : TEXT <<FK>>
+  text : TEXT
+  start_idx : INTEGER
+  end_idx : INTEGER
+  metadata : TEXT
+}
+
+entity "users" as users {
+  * user_id : TEXT
+  --
+  username : TEXT
+  password_hash : TEXT
+  reset_question : TEXT
+  reset_answer_hash : TEXT
+  role : TEXT
+  created_at : TEXT
+  updated_at : TEXT
+}
+
+entity "metrics_snapshots" as metrics_snapshots {
+  * id : INTEGER
+  --
+  timestamp : TEXT
+  snapshot_json : TEXT
+}
+
+entity "status_snapshots" as status_snapshots {
+  * id : INTEGER
+  --
+  timestamp : TEXT
+  status_json : TEXT
+}
+
+documents ||--o{ chunks : doc_id
+
+@enduml

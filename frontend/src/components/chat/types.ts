@@ -1,4 +1,4 @@
-export type AttachmentStatus = 'queued' | 'uploading' | 'ready' | 'error'
+export type AttachmentStatus = 'queued' | 'uploading' | 'indexing' | 'ready' | 'error'
 
 export interface MessageAttachment {
   clientId: string
@@ -16,6 +16,7 @@ export interface ChatMessageModel {
   role: 'user' | 'assistant'
   content: string
   createdAt: string
+  language?: 'en' | 'zh' | 'auto' | string
   citations?: Array<{
     chunk_id: string
     doc_id: string
@@ -23,6 +24,7 @@ export interface ChatMessageModel {
     score: number
     source_name?: string
     url?: string
+    last_verified_at?: string | null
   }>
   diagnostics?: {
     retrieval_ms?: number
@@ -31,6 +33,8 @@ export interface ChatMessageModel {
     end_to_end_ms?: number
     citation_coverage?: number
     low_confidence?: boolean
+    review_suggested?: boolean
+    review_reason?: string | null
   } | null
   lowConfidence?: boolean
   streaming?: boolean

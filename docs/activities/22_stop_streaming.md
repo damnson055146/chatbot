@@ -1,0 +1,29 @@
+# Stop Streaming
+
+```plantuml
+@startuml
+skinparam shadowing false
+skinparam backgroundColor White
+skinparam activityBorderColor Black
+skinparam activityBackgroundColor White
+skinparam activityDiamondBorderColor Black
+skinparam activityDiamondBackgroundColor White
+skinparam activityStartColor Black
+skinparam activityEndColor Black
+skinparam swimlaneBorderColor Black
+skinparam swimlaneBorderThickness 1
+skinparam swimlaneTitleBackgroundColor White
+skinparam swimlaneTitleBorderColor Black
+skinparam swimlaneTitleBorderThickness 1
+skinparam padding 20
+title Stop Streaming
+|User|
+start
+:Click stop;
+|System|
+:Abort streaming request;
+:Mark response as stopped;
+:Show stop notice;
+stop
+@enduml
+```

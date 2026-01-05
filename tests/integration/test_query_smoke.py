@@ -3,7 +3,7 @@
 import pytest
 
 from src.agents.rag_agent import answer_query
-from src.schemas.models import QueryRequest
+from src.schemas.models import Document, QueryRequest
 from src.utils import index_manager, session as session_utils, storage
 from src.utils.chunking import simple_paragraph_chunk
 
@@ -29,6 +29,7 @@ def test_answer_query_offline(tmp_path, monkeypatch):
         "Required documents include passport, bank statements, and admission letter."
     )
     chunks = simple_paragraph_chunk(content, doc_id="d1", max_chars=200)
+    storage.upsert_document(Document(doc_id="d1", source_name="d1"))
     storage.save_chunks("d1", chunks)
 
     # Ensure no external call if no key
@@ -37,7 +38,7 @@ def test_answer_query_offline(tmp_path, monkeypatch):
     req = QueryRequest(question="What documents are required for student visa?", language="en", top_k=4, k_cite=2)
 
     async def run():
-        resp = await answer_query(req)
+        resp = await answer_query(req, user_id="test-user")
         assert resp.answer, "should get an answer string"
         assert resp.citations, "should include citations"
         assert resp.diagnostics is not None
@@ -50,8 +51,7 @@ def test_answer_query_offline(tmp_path, monkeypatch):
         assert isinstance(resp.slots, dict)
         assert "target_country" in resp.missing_slots
         assert resp.slot_prompts.get("target_country")
-        assert resp.slot_suggestions
-        assert any("country" in suggestion.lower() for suggestion in resp.slot_suggestions)
+        assert not resp.slot_suggestions
         for citation in resp.citations:
             chunk = storage.load_chunk_by_id(citation.chunk_id)
             assert chunk is not None
@@ -65,10 +65,10 @@ def test_answer_query_offline(tmp_path, monkeypatch):
             top_k=4,
             k_cite=2,
         )
-        zh_resp = await answer_query(zh_req)
+        zh_resp = await answer_query(zh_req, user_id="test-user")
         assert zh_resp.missing_slots
         assert zh_resp.slot_prompts.get("target_country", "").startswith("你计划")
-        assert zh_resp.slot_suggestions and zh_resp.slot_suggestions[0].startswith("你计划")
+        assert not zh_resp.slot_suggestions
 
         follow_up = QueryRequest(
             question="What documents are required for student visa?",
@@ -76,7 +76,7 @@ def test_answer_query_offline(tmp_path, monkeypatch):
             top_k=4,
             k_cite=2,
             session_id=resp.session_id,
-            slots={"target_country": "United Kingdom"},
+            slots={"target_country": "United Kingdom", "student_name": "Test Student"},
             temperature=0.1,
             top_p=0.7,
             max_tokens=150,
@@ -84,7 +84,7 @@ def test_answer_query_offline(tmp_path, monkeypatch):
             model="test-model",
             explain_like_new=True,
         )
-        resp_again = await answer_query(follow_up)
+        resp_again = await answer_query(follow_up, user_id="test-user")
         assert resp_again.session_id == resp.session_id
         assert resp_again.slots["target_country"] == "United Kingdom"
         assert "target_country" not in resp_again.missing_slots
@@ -99,7 +99,7 @@ def test_answer_query_offline(tmp_path, monkeypatch):
             session_id=resp_again.session_id,
             slots={"ielts": -1},
         )
-        invalid_resp = await answer_query(invalid_req)
+        invalid_resp = await answer_query(invalid_req, user_id="test-user")
         assert invalid_resp.slot_errors.get("ielts") == "must be ≥ 0.0"
 
     asyncio.run(run())

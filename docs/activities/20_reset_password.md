@@ -1,0 +1,48 @@
+# Reset Password
+
+```plantuml
+@startuml
+skinparam shadowing false
+skinparam backgroundColor White
+skinparam activityBorderColor Black
+skinparam activityBackgroundColor White
+skinparam activityDiamondBorderColor Black
+skinparam activityDiamondBackgroundColor White
+skinparam activityStartColor Black
+skinparam activityEndColor Black
+skinparam swimlaneBorderColor Black
+skinparam swimlaneBorderThickness 1
+skinparam swimlaneTitleBackgroundColor White
+skinparam swimlaneTitleBorderColor Black
+skinparam swimlaneTitleBorderThickness 1
+skinparam padding 20
+title Reset Password
+|User|
+start
+:Open reset password panel;
+:Enter username;
+:Request reset question;
+|System|
+:Load reset question;
+if (Question found?) then (Yes)
+:Show reset question;
+else (No)
+:Show reset error;
+end
+endif
+|User|
+:Enter reset answer;
+:Enter new password;
+:Submit reset;
+|System|
+:Validate reset answer;
+if (Valid?) then (Yes)
+:Update password;
+:Show reset success;
+else (No)
+:Show reset error;
+end
+endif
+stop
+@enduml
+```

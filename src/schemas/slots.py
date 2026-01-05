@@ -21,6 +21,7 @@ DEFAULT_SLOT_DEFINITIONS: List[SlotDefinition] = [
     SlotDefinition(
         name="student_name",
         description="Preferred name so the assistant can address the student personally",
+        required=True,
         prompt="May I have the name you'd like me to use when addressing you?",
         prompt_zh="我该如何称呼你？",
     ),

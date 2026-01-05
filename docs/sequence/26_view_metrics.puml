@@ -1,0 +1,10 @@
+@startuml
+title View Metrics
+autonumber
+actor User
+participant System
+
+User -> System : Open metrics view
+System -> User : Load metrics snapshot
+System -> User : Show metrics
+@enduml

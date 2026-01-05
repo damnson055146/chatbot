@@ -1,0 +1,14 @@
+# View Assistant Profile
+
+```plantuml
+@startuml
+title View Assistant Profile
+autonumber
+actor User
+participant System
+
+User -> System : Open app
+System -> User : Load assistant profile
+System -> User : Display assistant name and avatar
+@enduml
+```

@@ -1,0 +1,25 @@
+# Reset Password
+
+```plantuml
+@startuml
+title Reset Password
+autonumber
+actor User
+participant System
+
+User -> System : Open reset password screen
+User -> System : Enter username
+User -> System : Request reset question
+System -> User : Show reset question
+User -> System : Provide reset answer
+User -> System : Enter new password
+User -> System : Submit reset
+System -> User : Validate reset answer
+alt Valid? Yes
+  System -> User : Update password
+  System -> User : Return to login screen
+else No
+  System -> User : Show reset error
+end
+@enduml
+```

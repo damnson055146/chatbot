@@ -1,0 +1,14 @@
+# Legacy Query
+
+```plantuml
+@startuml
+title Legacy Query
+autonumber
+actor User
+participant System
+
+User -> System : Type question
+System -> User : Call legacy query service
+System -> User : Receive answer
+@enduml
+```

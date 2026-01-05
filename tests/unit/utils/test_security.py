@@ -62,3 +62,13 @@ def test_rate_limiter_window_allows_after_interval(monkeypatch):
     monkeypatch.setattr(time, "time", lambda: original_time() + 2)
 
     limiter.allow("client")
+
+
+def test_assert_admin_allows_readonly_with_flag():
+    principal = security.Principal(role="admin_readonly", actor="readonly", sub="readonly", method="jwt")
+
+    security.assert_admin(principal, allow_readonly=True)
+
+    with pytest.raises(HTTPException) as exc_info:
+        security.assert_admin(principal)
+    assert exc_info.value.status_code == 403

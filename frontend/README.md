@@ -1,6 +1,6 @@
 # Study Abroad Assistant Frontend
 
-This Vite + React + TypeScript workspace implements the web client described in `docs/frontend.md`. It ships with React Query, TailwindCSS, React Router, React Hook Form, Zod, Axios, and i18next pre-wired so feature teams can focus on RAG UX rather than boilerplate.
+This Vite + React + TypeScript workspace implements the web client described in `docs/frontend.md`. It ships with React Query, TailwindCSS, React Router, Axios, and i18next pre-wired so feature teams can focus on RAG UX rather than boilerplate.
 
 ## Getting Started
 
@@ -42,7 +42,7 @@ Values cascade from the backend config; adjust per environment. The app reads th
 
 ## Admin Console
 
-The frontend also includes a lightweight admin console at `/admin` for inspecting `/v1/status`, `/v1/metrics`, and key governance endpoints. It requires the same `VITE_API_KEY` as the rest of the app.
+The frontend also includes a lightweight admin console at `/admin/:section?` (e.g. `/admin/sources`) for inspecting `/v1/status`, `/v1/metrics`, and key governance endpoints such as sources. It requires the same `VITE_API_KEY` as the rest of the app.
 
 ## Project Layout
 
@@ -72,4 +72,4 @@ TailwindCSS utilities are available via `src/index.css`. Theme colors for brand 
 2. Build slot guidance components aligned with backend schemas.
 3. Add observability pages consuming `/v1/status` and tracing metadata when available.
 
-Refer back to `docs/frontend.md` for detailed requirements and roadmap.
+Refer back to `docs/frontend.md` for architecture notes, routes, and development conventions.

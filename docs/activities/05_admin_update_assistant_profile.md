@@ -1,0 +1,41 @@
+# Admin Update Assistant Profile
+
+```plantuml
+@startuml
+skinparam shadowing false
+skinparam backgroundColor White
+skinparam activityBorderColor Black
+skinparam activityBackgroundColor White
+skinparam activityDiamondBorderColor Black
+skinparam activityDiamondBackgroundColor White
+skinparam activityStartColor Black
+skinparam activityEndColor Black
+skinparam swimlaneBorderColor Black
+skinparam swimlaneBorderThickness 1
+skinparam swimlaneTitleBackgroundColor White
+skinparam swimlaneTitleBorderColor Black
+skinparam swimlaneTitleBorderThickness 1
+skinparam padding 20
+title Admin Update Assistant Profile
+|User|
+start
+:Open admin profile;
+|System|
+:Load assistant profile;
+|User|
+:Choose profile action;
+|System|
+if (Action?) then (Save profile)
+:Update assistant profile;
+:Return updated profile;
+elseif (Upload avatar)
+:Upload new avatar;
+:Return updated profile;
+elseif (Remove avatar)
+:Remove avatar;
+:Return updated profile;
+endif
+:Show updated profile;
+stop
+@enduml
+```

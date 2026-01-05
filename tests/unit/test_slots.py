@@ -22,6 +22,7 @@ def test_filter_valid_slots_filters_unknown_and_empty():
 def test_missing_required_slots_returns_required_defs():
     missing = slots.missing_required_slots({})
     names = {slot.name for slot in missing}
+    assert "student_name" in names
     assert "target_country" in names
 
 

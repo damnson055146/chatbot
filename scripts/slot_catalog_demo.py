@@ -23,8 +23,7 @@ def main() -> None:
     print("--- English prompts ---")
     fetch_slots(language="en")
 
-    print("
---- Chinese prompts ---")
+    print("\n--- Chinese prompts ---")
     fetch_slots(language="zh")
 
 

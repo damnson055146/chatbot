@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import math
 import threading
 import time
 import os
 import json
+import re
 from collections.abc import AsyncIterator
 from typing import Any, Callable, Dict, List, Sequence, Tuple
 
@@ -20,8 +22,10 @@ log = get_logger(__name__)
 
 _DEFAULT_BASE = "https://api.siliconflow.cn/v1"
 _DEFAULT_CHAT_MODEL = "Qwen/Qwen2.5-7B-Instruct"
-_DEFAULT_EMBED_MODEL = "BAAI/bge-large-zh-v1.5"
-_DEFAULT_RERANK_MODEL = "BAAI/bge-reranker-v2-m3"
+_DEFAULT_EMBED_MODEL = "Qwen/Qwen3-Embedding-8B"
+_DEFAULT_RERANK_MODEL = "Qwen/Qwen3-Reranker-8B"
+_DEFAULT_STT_MODEL = "FunAudioLLM/SenseVoiceSmall"
+_DEFAULT_OCR_MODEL = "Qwen/Qwen3-VL-32B-Instruct"
 
 
 class SiliconFlowConfigError(RuntimeError):
@@ -60,10 +64,91 @@ def _default_embed_model() -> str:
     return os.getenv("SILICONFLOW_EMBED_MODEL", _DEFAULT_EMBED_MODEL)
 
 
+def _embed_batch_size() -> int:
+    return _get_int_env("SILICONFLOW_EMBED_BATCH_SIZE", 32)
+
+
+def _embed_batch_max_chars() -> int:
+    return _get_int_env("SILICONFLOW_EMBED_BATCH_MAX_CHARS", 12000)
+
+
 def _default_rerank_model() -> str:
     return os.getenv("SILICONFLOW_RERANK_MODEL", _DEFAULT_RERANK_MODEL)
 
 
+def _default_stt_model() -> str:
+    return os.getenv("SILICONFLOW_STT_MODEL", _DEFAULT_STT_MODEL)
+
+
+def _default_ocr_model() -> str:
+    return os.getenv("SILICONFLOW_OCR_MODEL", _DEFAULT_OCR_MODEL)
+
+
+def _to_data_url(content: bytes, mime_type: str) -> str:
+    encoded = base64.b64encode(content).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
+def _clean_ocr_text(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z0-9_-]*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```$", "", cleaned)
+    return cleaned.strip()
+
+
+def transcribe_audio(
+    content: bytes,
+    *,
+    filename: str,
+    mime_type: str,
+    language: str | None = None,
+    model: str | None = None,
+) -> Dict[str, Any]:
+    if not _enabled():
+        raise SiliconFlowConfigError("SILICONFLOW_API_KEY is not configured")
+
+    payload: Dict[str, Any] = {"model": model or _default_stt_model()}
+    if language:
+        payload["language"] = language
+
+    files = {"file": (filename, content, mime_type)}
+    headers = {"Authorization": f"Bearer {_api_key()}"}
+
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(f"{_base_url()}/audio/transcriptions", headers=headers, data=payload, files=files)
+        response.raise_for_status()
+        return response.json()
+
+
+def ocr_image(
+    content: bytes,
+    *,
+    filename: str,
+    mime_type: str,
+    model: str | None = None,
+    prompt: str | None = None,
+) -> Dict[str, Any]:
+    if not _enabled():
+        raise SiliconFlowConfigError("SILICONFLOW_API_KEY is not configured")
+
+    ocr_prompt = prompt or (
+        "Extract all readable text from the image. "
+        "Return plain text only, preserve line breaks, and do not add commentary."
+    )
+    payload: Dict[str, Any] = {
+        "model": model or _default_ocr_model(),
+        "messages": _multimodal_messages(ocr_prompt, "You are an OCR engine.", [_to_data_url(content, mime_type)]),
+        "temperature": 0.0,
+        "max_tokens": 2048,
+    }
+
+    with httpx.Client(timeout=60.0) as client:
+        response = client.post(f"{_base_url()}/chat/completions", headers=_headers(), json=payload)
+        response.raise_for_status()
+        data = response.json()
+        text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return {"text": _clean_ocr_text(str(text)), "model": payload["model"], "filename": filename}
 
 
 def _get_float_env(name: str, default: float) -> float:
@@ -115,6 +200,37 @@ def _rerank_cb_failure_threshold() -> int:
 
 def _rerank_cb_reset_seconds() -> float:
     return _get_float_env("SILICONFLOW_RERANK_CB_RESET_SECONDS", 30.0)
+
+
+def _chat_stream_max_attempts() -> int:
+    return max(_get_int_env("SILICONFLOW_CHAT_STREAM_MAX_ATTEMPTS", 3), 1)
+
+
+def _chat_stream_backoff_min_seconds() -> float:
+    return _get_float_env("SILICONFLOW_CHAT_STREAM_BACKOFF_MIN_SECONDS", 1.0)
+
+
+def _chat_stream_backoff_max_seconds() -> float:
+    return _get_float_env("SILICONFLOW_CHAT_STREAM_BACKOFF_MAX_SECONDS", 8.0)
+
+
+def _should_retry_stream_http_status(status_code: int) -> bool:
+    if status_code == 429:
+        return True
+    if status_code in {408, 409}:
+        return True
+    return 500 <= status_code <= 599
+
+
+def _parse_retry_after_seconds(headers: httpx.Headers) -> float | None:
+    value = headers.get("retry-after")
+    if not value:
+        return None
+    try:
+        parsed = float(value)
+    except ValueError:
+        return None
+    return parsed if parsed > 0 else None
 
 
 class _CircuitBreaker:
@@ -204,6 +320,34 @@ def _fallback_scores(documents: Sequence[str]) -> List[Tuple[int, float]]:
     return [(idx, float(len(documents) - idx)) for idx in range(len(documents))]
 
 
+def _chunk_embed_inputs(
+    texts: Sequence[str],
+    max_batch_size: int,
+    max_batch_chars: int,
+) -> List[Tuple[int, List[str]]]:
+    batches: List[Tuple[int, List[str]]] = []
+    batch: List[str] = []
+    batch_chars = 0
+    batch_start = 0
+    for idx, text in enumerate(texts):
+        text_len = len(text)
+        if batch and (len(batch) >= max_batch_size or batch_chars + text_len > max_batch_chars):
+            batches.append((batch_start, batch))
+            batch = []
+            batch_chars = 0
+        if not batch:
+            batch_start = idx
+        batch.append(text)
+        batch_chars += text_len
+        if len(batch) >= max_batch_size:
+            batches.append((batch_start, batch))
+            batch = []
+            batch_chars = 0
+    if batch:
+        batches.append((batch_start, batch))
+    return batches
+
+
 @retry(wait=wait_exponential(multiplier=1, min=1, max=8), stop=stop_after_attempt(3))
 async def chat(
     prompt: str,
@@ -257,6 +401,69 @@ async def chat(
         return data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
 
 
+def _multimodal_messages(prompt: str, system_message: str, image_data_urls: Sequence[str]) -> List[Dict[str, Any]]:
+    user_content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for url in image_data_urls:
+        if not url:
+            continue
+        user_content.append({"type": "image_url", "image_url": {"url": url}})
+    return [
+        {"role": "system", "content": system_message},
+        {"role": "user", "content": user_content},
+    ]
+
+
+async def chat_multimodal(
+    prompt: str,
+    *,
+    system_message: str = "You are a helpful assistant.",
+    image_data_urls: Sequence[str],
+    temperature: float = 0.2,
+    top_p: float | None = None,
+    max_tokens: int | None = None,
+    stop: Sequence[str] | None = None,
+    model: str | None = None,
+    stream: bool = False,
+) -> str:
+    if not _enabled():
+        return "[offline] Unable to call model. Provide key to enable generation."
+
+    if stream:
+        chunks: List[str] = []
+        async for delta in chat_multimodal_stream(
+            prompt,
+            system_message=system_message,
+            image_data_urls=image_data_urls,
+            temperature=temperature,
+            top_p=top_p,
+            max_tokens=max_tokens,
+            stop=stop,
+            model=model,
+        ):
+            if delta:
+                chunks.append(delta)
+        return "".join(chunks).strip()
+
+    payload: Dict[str, Any] = {
+        "model": model or os.getenv("SILICONFLOW_MM_MODEL", "THUDM/GLM-4.1V"),
+        "messages": _multimodal_messages(prompt, system_message, image_data_urls),
+        "temperature": temperature,
+        "stream": stream,
+    }
+    if top_p is not None:
+        payload["top_p"] = top_p
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if stop:
+        payload["stop"] = list(stop)
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        response = await client.post(f"{_base_url()}/chat/completions", headers=_headers(), json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+
 async def chat_stream(
     prompt: str,
     *,
@@ -292,49 +499,196 @@ async def chat_stream(
     if stop:
         payload["stop"] = list(stop)
 
+    metrics = get_metrics()
+    max_attempts = _chat_stream_max_attempts()
+    backoff_min = _chat_stream_backoff_min_seconds()
+    backoff_max = _chat_stream_backoff_max_seconds()
+
     timeout = httpx.Timeout(30.0, read=None)
     async with httpx.AsyncClient(timeout=timeout) as client:
-        async with client.stream(
-            "POST",
-            f"{_base_url()}/chat/completions",
-            headers=_headers(),
-            json=payload,
-        ) as response:
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "")
-            if "application/json" in content_type:
-                data = await response.json()
-                content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                if content:
-                    yield str(content)
-                return
+        attempt = 0
+        while True:
+            attempt += 1
+            emitted_any = False
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{_base_url()}/chat/completions",
+                    headers=_headers(),
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "")
+                    if "application/json" in content_type:
+                        data = await response.json()
+                        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if content:
+                            emitted_any = True
+                            yield str(content)
+                        return
 
-            async for line in response.aiter_lines():
-                if not line:
-                    continue
-                if not line.startswith("data:"):
-                    continue
-                raw = line[5:].strip()
-                if not raw:
-                    continue
-                if raw == "[DONE]":
-                    break
-                try:
-                    event = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if not raw:
+                            continue
+                        if raw == "[DONE]":
+                            return
+                        try:
+                            event = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
 
-                choices = event.get("choices") or []
-                if not choices:
-                    continue
-                first = choices[0] or {}
-                delta = first.get("delta") or {}
-                content = delta.get("content")
-                if content is None:
-                    message = first.get("message") or {}
-                    content = message.get("content")
-                if content:
-                    yield str(content)
+                        choices = event.get("choices") or []
+                        if not choices:
+                            continue
+                        first = choices[0] or {}
+                        delta = first.get("delta") or {}
+                        content = delta.get("content")
+                        if content is None:
+                            message = first.get("message") or {}
+                            content = message.get("content")
+                        if content:
+                            emitted_any = True
+                            yield str(content)
+                    return
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code if exc.response is not None else 0
+                retryable = _should_retry_stream_http_status(status_code)
+                if (not retryable) or emitted_any or attempt >= max_attempts:
+                    if attempt >= max_attempts and retryable and not emitted_any:
+                        metrics.increment_counter("chat_stream_retry::exhausted")
+                    raise
+                metrics.increment_counter("chat_stream_retry::attempt")
+                retry_after = _parse_retry_after_seconds(exc.response.headers) if exc.response is not None else None
+                delay = min(backoff_max, backoff_min * (2 ** (attempt - 1)))
+                if retry_after is not None:
+                    delay = max(delay, min(retry_after, backoff_max))
+                await asyncio.sleep(delay)
+                continue
+            except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError, httpx.TransportError) as exc:
+                if emitted_any or attempt >= max_attempts:
+                    if attempt >= max_attempts and not emitted_any:
+                        metrics.increment_counter("chat_stream_retry::exhausted")
+                    raise
+                metrics.increment_counter("chat_stream_retry::attempt")
+                delay = min(backoff_max, backoff_min * (2 ** (attempt - 1)))
+                await asyncio.sleep(delay)
+                continue
+
+
+async def chat_multimodal_stream(
+    prompt: str,
+    *,
+    system_message: str = "You are a helpful assistant.",
+    image_data_urls: Sequence[str],
+    temperature: float = 0.2,
+    top_p: float | None = None,
+    max_tokens: int | None = None,
+    stop: Sequence[str] | None = None,
+    model: str | None = None,
+) -> AsyncIterator[str]:
+    """Stream multimodal chat completion deltas from SiliconFlow."""
+
+    if not _enabled():
+        yield "[offline] Unable to call model. Provide key to enable generation."
+        return
+
+    payload: Dict[str, Any] = {
+        "model": model or os.getenv("SILICONFLOW_MM_MODEL", "THUDM/GLM-4.1V"),
+        "messages": _multimodal_messages(prompt, system_message, image_data_urls),
+        "temperature": temperature,
+        "stream": True,
+    }
+    if top_p is not None:
+        payload["top_p"] = top_p
+    if max_tokens is not None:
+        payload["max_tokens"] = max_tokens
+    if stop:
+        payload["stop"] = list(stop)
+
+    metrics = get_metrics()
+    max_attempts = _chat_stream_max_attempts()
+    backoff_min = _chat_stream_backoff_min_seconds()
+    backoff_max = _chat_stream_backoff_max_seconds()
+
+    timeout = httpx.Timeout(60.0, read=None)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        attempt = 0
+        while True:
+            attempt += 1
+            emitted_any = False
+            try:
+                async with client.stream(
+                    "POST",
+                    f"{_base_url()}/chat/completions",
+                    headers=_headers(),
+                    json=payload,
+                ) as response:
+                    response.raise_for_status()
+                    content_type = response.headers.get("content-type", "")
+                    if "application/json" in content_type:
+                        data = await response.json()
+                        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                        if content:
+                            emitted_any = True
+                            yield str(content)
+                        return
+
+                    async for line in response.aiter_lines():
+                        if not line:
+                            continue
+                        if not line.startswith("data:"):
+                            continue
+                        raw = line[5:].strip()
+                        if not raw:
+                            continue
+                        if raw == "[DONE]":
+                            return
+                        try:
+                            event = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+
+                        choices = event.get("choices") or []
+                        if not choices:
+                            continue
+                        first = choices[0] or {}
+                        delta = first.get("delta") or {}
+                        content = delta.get("content")
+                        if content is None:
+                            message = first.get("message") or {}
+                            content = message.get("content")
+                        if content:
+                            emitted_any = True
+                            yield str(content)
+                    return
+            except httpx.HTTPStatusError as exc:
+                status_code = exc.response.status_code if exc.response is not None else 0
+                retryable = _should_retry_stream_http_status(status_code)
+                if (not retryable) or emitted_any or attempt >= max_attempts:
+                    if attempt >= max_attempts and retryable and not emitted_any:
+                        metrics.increment_counter("chat_stream_retry::exhausted")
+                    raise
+                metrics.increment_counter("chat_stream_retry::attempt")
+                retry_after = _parse_retry_after_seconds(exc.response.headers) if exc.response is not None else None
+                delay = min(backoff_max, backoff_min * (2 ** (attempt - 1)))
+                if retry_after is not None:
+                    delay = max(delay, min(retry_after, backoff_max))
+                await asyncio.sleep(delay)
+                continue
+            except (httpx.ReadTimeout, httpx.ConnectError, httpx.RemoteProtocolError, httpx.TransportError):
+                if emitted_any or attempt >= max_attempts:
+                    if attempt >= max_attempts and not emitted_any:
+                        metrics.increment_counter("chat_stream_retry::exhausted")
+                    raise
+                metrics.increment_counter("chat_stream_retry::attempt")
+                delay = min(backoff_max, backoff_min * (2 ** (attempt - 1)))
+                await asyncio.sleep(delay)
+                continue
 
 
 def embed_texts(texts: Sequence[str], *, model: str | None = None) -> List[List[float]]:
@@ -343,17 +697,53 @@ def embed_texts(texts: Sequence[str], *, model: str | None = None) -> List[List[
     if not _enabled():
         return [_pseudo_embedding(text) for text in texts]
 
-    payload = {"model": model or _default_embed_model(), "input": list(texts)}
+    batch_size = _embed_batch_size()
+    batch_max_chars = _embed_batch_max_chars()
+    batches = _chunk_embed_inputs(texts, batch_size, batch_max_chars)
+    embeddings: List[List[float]] = []
+    expected_dim: int | None = None
     try:
         with httpx.Client(timeout=30.0) as client:
-            response = client.post(f"{_base_url()}/embeddings", headers=_headers(), json=payload)
-            response.raise_for_status()
-            data = response.json().get("data", [])
-            embeddings: List[List[float]] = []
-            for item in data:
-                vec = item.get("embedding")
-                if isinstance(vec, list):
-                    embeddings.append(vec)
+            for batch_start, batch in batches:
+                payload = {"model": model or _default_embed_model(), "input": list(batch)}
+                try:
+                    response = client.post(f"{_base_url()}/embeddings", headers=_headers(), json=payload)
+                    response.raise_for_status()
+                    data = response.json().get("data", [])
+                    batch_embeddings: List[List[float]] = []
+                    for item in data:
+                        vec = item.get("embedding")
+                        if isinstance(vec, list):
+                            batch_embeddings.append(vec)
+                    if len(batch_embeddings) != len(batch):
+                        log.warning(
+                            "siliconflow_embed_incomplete",
+                            expected=len(batch),
+                            received=len(batch_embeddings),
+                            batch_start=batch_start,
+                        )
+                        raise ValueError("embedding batch incomplete")
+                    if not batch_embeddings:
+                        log.warning("siliconflow_embed_empty", batch_start=batch_start)
+                        raise ValueError("embedding batch empty")
+                    if expected_dim is None:
+                        expected_dim = len(batch_embeddings[0])
+                    if any(len(vec) != expected_dim for vec in batch_embeddings):
+                        log.warning(
+                            "siliconflow_embed_dim_mismatch",
+                            expected_dim=expected_dim,
+                            batch_start=batch_start,
+                        )
+                        raise ValueError("embedding dimension mismatch")
+                    embeddings.extend(batch_embeddings)
+                except Exception as exc:
+                    log.warning(
+                        "siliconflow_embed_batch_failed",
+                        error=str(exc),
+                        batch_start=batch_start,
+                        batch_size=len(batch),
+                    )
+                    return [_pseudo_embedding(text) for text in texts]
             if len(embeddings) == len(texts):
                 return embeddings
             log.warning("siliconflow_embed_incomplete", expected=len(texts), received=len(embeddings))

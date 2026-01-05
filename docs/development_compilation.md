@@ -20,6 +20,7 @@
 
 - `docs/development_compilation.md`（本文）：技术实现、运维与路线图的唯一引用入口。
 - `function_req.md`：沿用原有 SRS，定义功能 / 非功能需求、验收标准与里程碑。所有实现与验收讨论应回链到该需求文档。
+- `docs/auth.md`：登录与权限（user/admin）设计与落地规范，后续鉴权实现必须对齐本文。
 
 ## 2. 系统背景与目标
 
@@ -41,11 +42,13 @@
 
 - **核心端点**
   - `POST /v1/ingest`: 接收源文、语言、领域标签、freshness、overlap 参数，触发重建并返回 doc_id、版本、chunk_count 与健康摘要。
-  - `POST /v1/query`: 支持 `language`、`slots`、`session_id`、`reset_slots`、`top_k`、`k_cite`、生成参数（temperature/top_p/max_tokens/stop/model）以及 `attachments` 列表。响应包括 answer/citations/diagnostics/slot 状态/trace_id/low_confidence。
-  - `POST /v1/query?stream=true`: 规划中的 SSE 协议，定义 `chunk`/`citations`/`completed`/`error` 事件，自适配 Accept: text/event-stream。
+  - `POST /v1/query`: 支持 `language`、`slots`、`session_id`、`reset_slots`、`top_k`、`k_cite`、生成参数（temperature/top_p/max_tokens/stop/model）以及 `attachments` 列表（附件 OCR/STT 文本会合并入提问，含图片时尝试多模态模型）。响应包括 answer/citations/diagnostics/slot 状态/trace_id/low_confidence。
+  - `POST /v1/query?stream=true`: **已落地 SSE**（`Accept: text/event-stream`），事件：`chunk`/`citations`/`completed`/`error`；前端通过 `VITE_STREAMING_MODE=server` 启用并支持 Stop/Cancel。
   - `GET /v1/slots`: 返回槽位目录（含本地化 prompt、required 标记、数据类型、取值范围）。
   - `POST /v1/upload` + `GET /v1/upload/{id}`: 处理 PDF/图像（<=10 MB），校验 MIME、写入本地存储、返回 `UploadInitResponse` / `UploadRecord`，并提供下载 URL。
-  - Admin 端点（slots/retrieval/stop-list）允许运维调整槽位、检索参数、敏感词并输出审计日志。
+- `POST /v1/admin/ingest-upload`: **新增（MVP）**，基于 `upload_id` 将已上传附件转换为可索引文本并触发入库（支持 PDF 文本提取与 `text/*`；图片 OCR（PNG/JPEG/WEBP，Qwen/Qwen3-VL-32B-Instruct via SiliconFlow）与音频 STT（MP3/WAV/MP4/WEBM/OGG）已支持）。
+  - `POST /v1/ingest-upload`: **新增（MVP）**，面向普通用户的 upload→ingest 串联接口；前端上传完成后自动触发入库，使附件内容进入索引（同步执行+重建索引，后续可演进为异步任务）。
+  - Admin 端点（retrieval/slots/stop-list/sources/prompts/templates/audit/jobs/metrics/status）允许运维调整参数与查看治理信息。
 - **Agent 逻辑**
   - Retrieval → rerank → generation 三段依次执行，并通过 `metrics.record_phase` 记录耗时。
   - Rerank 失败路径会累计 `rerank_retry::attempt/exhausted`、`rerank_fallback::*`、`rerank_language::*`，并在 diagnostics 中揭示 fallback 情况。
@@ -62,17 +65,20 @@
 - **特性**
   - 聊天控制台：支持 session 切换、本地持久化、键盘快捷键、Explain-like-new、检索参数调节。
   - 槽位体验：缺失 banner、建议 chips、slot 表单同步后端校验错误。
-  - Streaming：`VITE_STREAMING_MODE` 控制 simulate/server/off，Stop/Cancel 可打断流式响应。
+  - Streaming：`VITE_STREAMING_MODE=server` 使用后端 SSE（已落地），Stop/Cancel 可打断流式响应。
   - 附件上传：文件队列（queued → uploading → ready → error），阻止未完成上传的发送，并在记录中展示名称/大小/状态。
   - 偏好抽屉：语言、Explain-like-new 默认值、保留策略、主题；可导出对话 JSON；Pinned 会话最多 3 条。
-  - Usage & Health：展示 `/v1/status` latency/quality 指标，联动低置信提示。
+  - Usage & Health：展示 `/v1/status` latency/quality 指标；Admin 控制台提供 `/v1/metrics` 可视化与 Sources 管理（`/admin/metrics`、`/admin/sources`）。
 - **脚本**：`npm run dev/build/preview/lint/test/test:watch`；`npm run test -- --coverage` 生成 HTML 报告；`npm audit` 定期检查高危依赖。
 
 ## 6. 配置、环境与依赖
 
 - **后端**
   - 建议使用 `.venv` + `python -m pip install -r requirements.txt`。
-  - 必配环境变量：`SILICONFLOW_API_KEY/Base/Model`、`SILICONFLOW_EMBED_MODEL`、`SILICONFLOW_RERANK_MODEL`、`API_AUTH_TOKEN`、`API_RATE_LIMIT`、`API_RATE_WINDOW`、`LOG_LEVEL`。
+  - 必配环境变量：
+    - SiliconFlow：`SILICONFLOW_API_KEY`（以及 model/base 等可选项）
+    - Auth（MVP）：`JWT_SECRET`、`AUTH_ADMIN_PASSWORD`（见 `docs/auth.md` 与 `configs/env.example`）
+    - 可选：`API_AUTH_TOKEN`/`ADMIN_API_KEYS`（dev/ops fallback）、`API_RATE_LIMIT`、`API_RATE_WINDOW`、`LOG_LEVEL`
   - Tracing（可选）：`OTEL_EXPORTER_OTLP_ENDPOINT/HEADERS/INSECURE`、`OTEL_SERVICE_NAME`、`TRACING_SAMPLE_RATIO`。未安装 OTEL SDK 时自动降级为 no-op。
   - CLI：`python -m src.cli ingest <file>`、`python -m src.cli query "question" --language zh`。
   - `.env` 为 `API_AUTH_TOKEN` 的唯一来源，可运行 `python scripts/set_api_token.py` 自动生成随机令牌并写入。
@@ -85,7 +91,7 @@
     VITE_API_BASE=http://localhost:8000/v1
     VITE_API_KEY=dev-secret
     VITE_DEFAULT_LANGUAGE=en
-    VITE_STREAMING_MODE=simulate
+    VITE_STREAMING_MODE=server
     VITE_STREAMING_CHUNK_SIZE=18
     VITE_STREAMING_TICK_MS=35
     ```
@@ -119,20 +125,42 @@
   - Manifest/Prompt/文档查找缓存，减少重复磁盘读取。
   - Rerank 重试、超时、熔断 + 语言粒度指标；Optional OpenTelemetry span `siliconflow.rerank`。
   - `/v1/query` 附件字段、`/v1/upload` API、`assets/uploads/` 管理、前端上传状态机与阻塞策略。
+  - 登录与权限：`/v1/auth/login`、`/v1/auth/me`（单一管理员密码区分 role），前端 `/login` 页面与 `/admin/*` 路由守卫；`/v1/admin/*` 强制 admin。
   - 观测性：`time_phase` / `time_phase_endpoint` 计时、Grafana 面板、Prometheus 规则、OTLP Runbook。
   - 前端：偏好抽屉、Usage 卡片、模拟 streaming、Vitest 覆盖、会话 pin/导出。
+  - Admin 控制台：Sources/Prompts/Templates/Stop-list/Slots CRUD + Retrieval 调参 + Audit 查看 + Metrics dashboard。
+  - Admin Jobs：查看 `/v1/admin/jobs` 历史，并支持触发 `Rebuild index` 与 `Ingest upload`（`/v1/admin/ingest-upload`）。
 - **进行中**
   - 评估独立 metrics exporter（`/v1/metrics` → OTLP metrics pipeline），决定是否开放 Pull/Push 兼容模式。
 - **未完成 / 风险**
   - SSE streaming 已在后端落地（`POST /v1/query?stream=true`，事件：`chunk`/`citations`/`completed`/`error`），前端可通过 `VITE_STREAMING_MODE=server` 启用；仍需补齐更完善的断线重连与 UI 级别的“流式状态”细节。
-  - 附件缺少 OCR/反病毒/PII 扫描与定期清理，需在数据保留策略前完成。
+  - 附件仍缺少“聊天侧自动 upload → ingest 串联”、PII 扫描与定期清理，需在数据保留策略前完成。（病毒扫描：按当前范围暂不纳入 MVP）
   - Chronograf 或其他 dashboard 映射仍待确认数据源。
   - Server-side pin/archive、反馈 API、偏好同步、会话保留等功能仍处路线图阶段（见 `function_req.md`）。
+  - 后端测试用例尚未建立（当前 `pytest` 无测试可跑），需要补齐最小回归（auth、query、admin 写接口、upload）。
 
 ## 9. 下一步建议
 
 1. **完善 `/v1/query` SSE 体验**：在前端默认启用 `VITE_STREAMING_MODE=server` 时验证 stop/cancel、断线重连与 tracing 关联；并补齐 UI 对 metrics/citations 的更细粒度呈现。
-2. **补齐附件合规链路**：在上传流程中插入 OCR/病毒/PII 检测，完善 retention/删除 API，并在观测指标与日志中记录扫描结果。
+2. **补齐附件合规链路**：在上传流程中插入 PII 检测（病毒扫描按当前范围暂不纳入 MVP），完善 retention/删除 API，并在观测指标与日志中记录扫描结果。
 3. **发布 metrics exporter**：明确 `/v1/metrics` JSON 格式或推送至 Prometheus/OTLP 的策略，同时更新仪表盘数据源与告警表达式。
 4. **隐私/合规 Runbook**：围绕 PDPA 留存/删除、API key 轮换、trace 采样调整建立可执行 runbook，与需求文档中的合规条款形成闭环。
 5. **版本化文档**：为重要配置或操作指南创建 `docs/snapshots/<date>_vN/`，并在 PR 模板中加入“更新开发资料汇编”检查项，确保该文件长期保持最新状态。
+
+## P0 验收清单
+- [ ] OCR：图片上传 -> ingest -> query 正常路径
+- [ ] OCR：OCR 失败返回 400，错误信息可读
+- [ ] STT：音频上传 -> ingest -> query 正常路径
+- [ ] STT：STT 失败返回 400，错误信息可读
+
+## 多模态与附件配置
+- SILICONFLOW_MM_MODEL：多模态对话模型（默认 GLM-4.1V）
+- ATTACHMENT_TEXT_MAX_CHARS：附件文本合并上限（默认 4000）
+- ATTACHMENT_IMAGE_MAX_BYTES：单张图片内联上限（默认 4MB）
+- SILICONFLOW_STT_MODEL / SILICONFLOW_STT_LANGUAGE：音频转写模型与语言
+- SILICONFLOW_OCR_MODEL：图片 OCR 模型（默认 Qwen/Qwen3-VL-32B-Instruct）
+
+## IR 模型默认值
+- Embedding: Qwen/Qwen3-Embedding-8B (`SILICONFLOW_EMBED_MODEL` 可覆盖)
+- Rerank: Qwen/Qwen3-Reranker-8B (`SILICONFLOW_RERANK_MODEL` 可覆盖)
+- Multimodal: THUDM/GLM-4.1V (`SILICONFLOW_MM_MODEL` 可覆盖)
